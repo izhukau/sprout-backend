@@ -20,22 +20,13 @@ export interface ConceptAgentInput {
 }
 
 /**
- * Concept agent: proposes remediation concepts when diagnostic answers reveal gaps.
+ * Concept agent: proposes path adjustments from diagnostic performance
+ * (gap closure, reinforcement, or enrichment).
  * Returned concepts are intended to be inserted after the current concept.
  */
 export async function generateAdaptiveConcepts(
   input: ConceptAgentInput,
 ): Promise<AdaptiveConceptCandidate[]> {
-  const weakItems = input.diagnostic.items.filter((item) =>
-    item.score !== null ? item.score < 0.7 : item.isCorrect === false,
-  );
-  const overall = input.diagnostic.overallScore ?? 1;
-
-  // Fast exit: no meaningful gaps detected.
-  if (overall >= 0.75 && weakItems.length < 2) {
-    return [];
-  }
-
   const maxConcepts = Math.max(1, Math.min(3, input.maxConcepts ?? 2));
 
   const message = await anthropic.messages.create({
@@ -46,7 +37,8 @@ export async function generateAdaptiveConcepts(
         role: "user",
         content: `You are a curriculum adaptation agent.
 
-Given a student's diagnostic performance, propose 0-${maxConcepts} remediation concepts that should be inserted immediately after the current concept.
+Given a student's diagnostic performance, propose 0-${maxConcepts} concepts that should be inserted immediately after the current concept.
+This is not only remediation: you can also suggest reinforcement or enrichment concepts when they improve continuity of the path.
 
 Topic: "${input.topicTitle}"
 Current concept: "${input.conceptTitle}"
@@ -59,7 +51,7 @@ Diagnostic summary:
 ${JSON.stringify(input.diagnostic, null, 2)}
 
 Rules:
-- Generate concepts only if they address clear knowledge gaps.
+- Generate concepts only if they improve this learner's path (gap closure, reinforcement, or enrichment).
 - Each concept must be short, concrete, and teachable.
 - Do not repeat existing or future concept titles.
 - Keep the count minimal and high-impact.

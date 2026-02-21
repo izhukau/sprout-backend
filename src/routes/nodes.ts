@@ -9,7 +9,7 @@ import {
   questions,
   answers,
 } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   generateSubconcepts,
@@ -192,6 +192,42 @@ router.get("/:id/children", async (req, res, next) => {
       .from(nodes)
       .where(eq(nodes.parentId, req.params.id));
     res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/nodes/:id/dependency-edges?childType=concept|subconcept
+// Returns dependency edges between direct children of a parent node.
+router.get("/:id/dependency-edges", async (req, res, next) => {
+  try {
+    const childType = req.query.childType as
+      | "concept"
+      | "subconcept"
+      | undefined;
+
+    let childQuery = db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.parentId, req.params.id))
+      .$dynamic();
+
+    if (childType) {
+      childQuery = childQuery.where(eq(nodes.type, childType));
+    }
+
+    const children = await childQuery;
+    const childIds = children.map((child) => child.id);
+    if (!childIds.length) return res.json([]);
+
+    const childIdSet = new Set(childIds);
+    const outgoing = await db
+      .select()
+      .from(nodeEdges)
+      .where(inArray(nodeEdges.sourceNodeId, childIds));
+
+    const edges = outgoing.filter((edge) => childIdSet.has(edge.targetNodeId));
+    res.json(edges);
   } catch (e) {
     next(e);
   }
@@ -413,13 +449,11 @@ router.post("/:id/generate-subconcepts", async (req, res, next) => {
       });
     }
 
-    res
-      .status(201)
-      .json({
-        generated: true,
-        subconcepts: createdNodes,
-        edges: createdEdges,
-      });
+    res.status(201).json({
+      generated: true,
+      subconcepts: createdNodes,
+      edges: createdEdges,
+    });
   } catch (e) {
     next(e);
   }

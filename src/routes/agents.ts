@@ -22,11 +22,15 @@ import {
   generateAdaptiveConcepts,
   type AdaptiveConceptCandidate,
 } from "../agents/concept-agent";
+import {
+  reviewLearningPath,
+  type ConceptReviewAddition,
+  type SubconceptReviewAddition,
+} from "../agents/review-learning-path";
 
 const router = Router();
 
 type NodeRow = typeof nodes.$inferSelect;
-type EdgeRow = typeof nodeEdges.$inferSelect;
 type AssessmentRow = typeof assessments.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 type AnswerRow = typeof answers.$inferSelect;
@@ -52,7 +56,9 @@ function extractStudentAnswer(answer?: AnswerRow): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-function latestAnswersByQuestion(assessmentAnswers: AnswerRow[]): Map<string, AnswerRow> {
+function latestAnswersByQuestion(
+  assessmentAnswers: AnswerRow[],
+): Map<string, AnswerRow> {
   const latest = new Map<string, AnswerRow>();
   const sorted = [...assessmentAnswers].sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt),
@@ -138,6 +144,163 @@ function buildDiagnosticSummary(
   };
 }
 
+function titleKey(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+async function loadLatestDiagnosticSummary(
+  userId: string,
+  nodeId: string,
+): Promise<SubconceptGenerationDiagnostic | null> {
+  const latestAssessments = await db
+    .select()
+    .from(assessments)
+    .where(
+      and(
+        eq(assessments.userId, userId),
+        eq(assessments.targetNodeId, nodeId),
+        eq(assessments.type, "diagnostic"),
+      ),
+    )
+    .orderBy(desc(assessments.createdAt));
+
+  if (!latestAssessments.length) return null;
+
+  const assessment = latestAssessments[0];
+  const [assessmentQuestions, assessmentAnswers] = await Promise.all([
+    db
+      .select()
+      .from(questions)
+      .where(eq(questions.assessmentId, assessment.id)),
+    db
+      .select()
+      .from(answers)
+      .where(
+        and(
+          eq(answers.assessmentId, assessment.id),
+          eq(answers.userId, userId),
+        ),
+      ),
+  ]);
+
+  const latestByQuestion = latestAnswersByQuestion(assessmentAnswers);
+  return buildDiagnosticSummary(
+    assessment.id,
+    assessmentQuestions,
+    latestByQuestion,
+  );
+}
+
+async function loadSiblingGraph(currentNode: NodeRow): Promise<{
+  siblingNodes: NodeRow[];
+  siblingEdges: { source: string; target: string }[];
+}> {
+  if (!currentNode.parentId) {
+    return { siblingNodes: [currentNode], siblingEdges: [] };
+  }
+
+  const siblingNodes = await db
+    .select()
+    .from(nodes)
+    .where(
+      and(
+        eq(nodes.parentId, currentNode.parentId),
+        eq(nodes.type, currentNode.type),
+      ),
+    );
+
+  const siblingIds = siblingNodes.map((node) => node.id);
+  if (!siblingIds.length) {
+    return { siblingNodes, siblingEdges: [] };
+  }
+
+  const siblingIdSet = new Set(siblingIds);
+  const titleById = new Map(siblingNodes.map((node) => [node.id, node.title]));
+  const rawEdges = await db
+    .select()
+    .from(nodeEdges)
+    .where(inArray(nodeEdges.sourceNodeId, siblingIds));
+
+  const siblingEdges = rawEdges
+    .filter((edge) => siblingIdSet.has(edge.targetNodeId))
+    .map((edge) => ({
+      source: titleById.get(edge.sourceNodeId) ?? edge.sourceNodeId,
+      target: titleById.get(edge.targetNodeId) ?? edge.targetNodeId,
+    }));
+
+  return { siblingNodes, siblingEdges };
+}
+
+async function buildOverviewForNodeReview(
+  userId: string,
+  currentNode: NodeRow,
+  rawOverview?: string | null,
+): Promise<string> {
+  const overviewLines: string[] = [];
+  const userOverview = rawOverview?.trim();
+  if (userOverview) {
+    overviewLines.push(`User overview: ${userOverview}`);
+  }
+
+  const progress = await db
+    .select()
+    .from(userNodeProgress)
+    .where(
+      and(
+        eq(userNodeProgress.userId, userId),
+        eq(userNodeProgress.nodeId, currentNode.id),
+      ),
+    );
+
+  if (progress.length) {
+    const p = progress[0];
+    overviewLines.push(
+      `Progress: masteryScore=${p.masteryScore}, attempts=${p.attemptsCount}, completedAt=${p.completedAt ?? "null"}`,
+    );
+  }
+
+  const nodeDiagnostic = await loadLatestDiagnosticSummary(
+    userId,
+    currentNode.id,
+  );
+  if (nodeDiagnostic) {
+    overviewLines.push(
+      `Current node diagnostic: overallScore=${nodeDiagnostic.overallScore ?? "null"}, answered=${nodeDiagnostic.answeredCount}/${nodeDiagnostic.totalQuestions}`,
+    );
+    if (nodeDiagnostic.strengths.length) {
+      overviewLines.push(`Strengths: ${nodeDiagnostic.strengths.join(" | ")}`);
+    }
+    if (nodeDiagnostic.gaps.length) {
+      overviewLines.push(`Gaps: ${nodeDiagnostic.gaps.join(" | ")}`);
+    }
+  }
+
+  if (currentNode.type === "subconcept" && currentNode.parentId) {
+    const parentConceptResult = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, currentNode.parentId));
+    if (parentConceptResult.length) {
+      overviewLines.push(`Parent concept: ${parentConceptResult[0].title}`);
+      const parentDiagnostic = await loadLatestDiagnosticSummary(
+        userId,
+        parentConceptResult[0].id,
+      );
+      if (parentDiagnostic) {
+        overviewLines.push(
+          `Parent concept diagnostic: overallScore=${parentDiagnostic.overallScore ?? "null"}, gapsCount=${parentDiagnostic.gaps.length}`,
+        );
+      }
+    }
+  }
+
+  if (!overviewLines.length) {
+    return "No additional overview available.";
+  }
+
+  return overviewLines.join("\n");
+}
+
 async function createEdgeIfMissing(sourceNodeId: string, targetNodeId: string) {
   const existing = await db
     .select()
@@ -181,7 +344,9 @@ async function ensureTopicConceptGraph(
         .where(eq(nodeEdges.sourceNodeId, concept.id));
 
       for (const edge of out) {
-        const targetNode = existingConcepts.find((n) => n.id === edge.targetNodeId);
+        const targetNode = existingConcepts.find(
+          (n) => n.id === edge.targetNodeId,
+        );
         if (targetNode) {
           edges.push({ source: concept.title, target: targetNode.title });
         }
@@ -211,7 +376,10 @@ async function ensureTopicConceptGraph(
       desc: concept.desc,
     });
 
-    const created = await db.select().from(nodes).where(eq(nodes.id, conceptId));
+    const created = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, conceptId));
     createdConcepts.push(created[0]);
   }
 
@@ -248,7 +416,11 @@ async function ensureDiagnosticAssessment(
   userId: string,
   conceptNode: NodeRow,
   parentTopicTitle: string | null,
-): Promise<{ assessment: AssessmentRow; questions: QuestionRow[]; created: boolean }> {
+): Promise<{
+  assessment: AssessmentRow;
+  questions: QuestionRow[];
+  created: boolean;
+}> {
   const existing = await db
     .select()
     .from(assessments)
@@ -392,14 +564,13 @@ async function ensureSubconceptGraph(
       .select()
       .from(nodes)
       .where(
-        and(
-          eq(nodes.parentId, conceptNode.id),
-          eq(nodes.type, "subconcept"),
-        ),
+        and(eq(nodes.parentId, conceptNode.id), eq(nodes.type, "subconcept")),
       );
 
     const edges: { source: string; target: string }[] = [];
-    const titleById = new Map(existingSubconcepts.map((node) => [node.id, node.title]));
+    const titleById = new Map(
+      existingSubconcepts.map((node) => [node.id, node.title]),
+    );
 
     for (const subconcept of existingSubconcepts) {
       const out = await db
@@ -443,7 +614,10 @@ async function ensureSubconceptGraph(
       desc: subconcept.desc,
     });
     titleToId[subconcept.title] = subconceptId;
-    const created = await db.select().from(nodes).where(eq(nodes.id, subconceptId));
+    const created = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, subconceptId));
     createdNodes.push(created[0]);
   }
 
@@ -496,7 +670,9 @@ async function ensureSubconceptGraph(
   };
 }
 
-async function loadFutureConceptTitles(currentConcept: NodeRow): Promise<string[]> {
+async function loadFutureConceptTitles(
+  currentConcept: NodeRow,
+): Promise<string[]> {
   if (!currentConcept.parentId) return [];
 
   const siblingConcepts = await db
@@ -513,7 +689,9 @@ async function loadFutureConceptTitles(currentConcept: NodeRow): Promise<string[
 
   const conceptIds = siblingConcepts.map((node) => node.id);
   const conceptIdSet = new Set(conceptIds);
-  const titleById = new Map(siblingConcepts.map((node) => [node.id, node.title]));
+  const titleById = new Map(
+    siblingConcepts.map((node) => [node.id, node.title]),
+  );
 
   const conceptEdges = await db
     .select()
@@ -548,11 +726,20 @@ async function loadFutureConceptTitles(currentConcept: NodeRow): Promise<string[
     .filter((title): title is string => !!title);
 }
 
-async function insertAdaptiveConceptsAfterCurrent(
+interface ConceptInsertionCandidate {
+  title: string;
+  desc: string;
+  insertAfterTitle?: string | null;
+}
+
+async function insertConceptAdditions(
   userId: string,
   currentConcept: NodeRow,
-  candidates: AdaptiveConceptCandidate[],
-): Promise<{ insertedConcepts: NodeRow[]; createdEdges: { source: string; target: string }[] }> {
+  candidates: ConceptInsertionCandidate[],
+): Promise<{
+  insertedConcepts: NodeRow[];
+  createdEdges: { source: string; target: string }[];
+}> {
   if (!currentConcept.parentId || !candidates.length) {
     return { insertedConcepts: [], createdEdges: [] };
   }
@@ -567,22 +754,29 @@ async function insertAdaptiveConceptsAfterCurrent(
       ),
     );
 
-  const existingTitleSet = new Set(
-    siblingConcepts.map((node) => node.title.trim().toLowerCase()),
+  const workingNodes = [...siblingConcepts];
+  const byId = new Map(workingNodes.map((node) => [node.id, node]));
+  const byTitle = new Map(
+    workingNodes.map((node) => [titleKey(node.title), node]),
   );
+  const existingTitleSet = new Set(
+    workingNodes.map((node) => titleKey(node.title)),
+  );
+  const anchorTailById = new Map<string, string>();
 
-  const deduped: AdaptiveConceptCandidate[] = [];
+  const deduped: ConceptInsertionCandidate[] = [];
   const seenTitles = new Set<string>();
   for (const candidate of candidates) {
     const cleanTitle = candidate.title.trim();
-    if (!cleanTitle) continue;
-    const key = cleanTitle.toLowerCase();
+    const cleanDesc = candidate.desc.trim();
+    if (!cleanTitle || !cleanDesc) continue;
+    const key = titleKey(cleanTitle);
     if (seenTitles.has(key) || existingTitleSet.has(key)) continue;
     seenTitles.add(key);
     deduped.push({
       title: cleanTitle,
-      desc: candidate.desc,
-      reason: candidate.reason,
+      desc: cleanDesc,
+      insertAfterTitle: candidate.insertAfterTitle?.trim() || null,
     });
   }
 
@@ -590,18 +784,19 @@ async function insertAdaptiveConceptsAfterCurrent(
     return { insertedConcepts: [], createdEdges: [] };
   }
 
-  const conceptIdSet = new Set(siblingConcepts.map((node) => node.id));
-  const siblingTitleById = new Map(siblingConcepts.map((node) => [node.id, node.title]));
-  const outgoingFromCurrent = await db
-    .select()
-    .from(nodeEdges)
-    .where(eq(nodeEdges.sourceNodeId, currentConcept.id));
-  const outgoingConceptEdges = outgoingFromCurrent.filter((edge) =>
-    conceptIdSet.has(edge.targetNodeId),
-  );
-
   const insertedConcepts: NodeRow[] = [];
+  const createdEdges: { source: string; target: string }[] = [];
+
   for (const candidate of deduped) {
+    const requestedAnchor =
+      (candidate.insertAfterTitle &&
+        byTitle.get(titleKey(candidate.insertAfterTitle))) ||
+      currentConcept;
+    const effectiveAnchorId =
+      anchorTailById.get(requestedAnchor.id) ?? requestedAnchor.id;
+    const effectiveAnchor = byId.get(effectiveAnchorId);
+    if (!effectiveAnchor) continue;
+
     const conceptId = uuid();
     await db.insert(nodes).values({
       id: conceptId,
@@ -612,32 +807,195 @@ async function insertAdaptiveConceptsAfterCurrent(
       title: candidate.title,
       desc: candidate.desc,
     });
-    const created = await db.select().from(nodes).where(eq(nodes.id, conceptId));
-    insertedConcepts.push(created[0]);
-  }
 
-  for (const edge of outgoingConceptEdges) {
-    await db.delete(nodeEdges).where(eq(nodeEdges.id, edge.id));
-  }
+    const created = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, conceptId));
+    const inserted = created[0];
+    insertedConcepts.push(inserted);
+    workingNodes.push(inserted);
+    byId.set(inserted.id, inserted);
+    byTitle.set(titleKey(inserted.title), inserted);
 
-  const createdEdges: { source: string; target: string }[] = [];
-  let lastSourceId = currentConcept.id;
-  let lastSourceTitle = currentConcept.title;
+    const conceptIdSet = new Set(workingNodes.map((node) => node.id));
+    const outgoing = await db
+      .select()
+      .from(nodeEdges)
+      .where(eq(nodeEdges.sourceNodeId, effectiveAnchor.id));
+    const outgoingConceptEdges = outgoing.filter(
+      (edge) =>
+        conceptIdSet.has(edge.targetNodeId) &&
+        edge.targetNodeId !== inserted.id,
+    );
 
-  for (const inserted of insertedConcepts) {
-    await createEdgeIfMissing(lastSourceId, inserted.id);
-    createdEdges.push({ source: lastSourceTitle, target: inserted.title });
-    lastSourceId = inserted.id;
-    lastSourceTitle = inserted.title;
-  }
+    for (const edge of outgoingConceptEdges) {
+      await db.delete(nodeEdges).where(eq(nodeEdges.id, edge.id));
+    }
 
-  for (const edge of outgoingConceptEdges) {
-    await createEdgeIfMissing(lastSourceId, edge.targetNodeId);
-    const targetTitle = siblingTitleById.get(edge.targetNodeId) ?? edge.targetNodeId;
-    createdEdges.push({ source: lastSourceTitle, target: targetTitle });
+    await createEdgeIfMissing(effectiveAnchor.id, inserted.id);
+    createdEdges.push({
+      source: effectiveAnchor.title,
+      target: inserted.title,
+    });
+
+    for (const edge of outgoingConceptEdges) {
+      await createEdgeIfMissing(inserted.id, edge.targetNodeId);
+      const targetTitle =
+        byId.get(edge.targetNodeId)?.title ?? edge.targetNodeId;
+      createdEdges.push({ source: inserted.title, target: targetTitle });
+    }
+
+    anchorTailById.set(requestedAnchor.id, inserted.id);
   }
 
   return { insertedConcepts, createdEdges };
+}
+
+async function insertAdaptiveConceptsAfterCurrent(
+  userId: string,
+  currentConcept: NodeRow,
+  candidates: AdaptiveConceptCandidate[],
+): Promise<{
+  insertedConcepts: NodeRow[];
+  createdEdges: { source: string; target: string }[];
+}> {
+  return insertConceptAdditions(
+    userId,
+    currentConcept,
+    candidates.map((candidate) => ({
+      title: candidate.title,
+      desc: candidate.desc,
+      insertAfterTitle: currentConcept.title,
+    })),
+  );
+}
+
+async function insertSubconceptAdditions(
+  userId: string,
+  currentSubconcept: NodeRow,
+  candidates: SubconceptReviewAddition[],
+): Promise<{
+  insertedSubconcepts: NodeRow[];
+  createdEdges: { source: string; target: string }[];
+}> {
+  if (!currentSubconcept.parentId || !candidates.length) {
+    return { insertedSubconcepts: [], createdEdges: [] };
+  }
+
+  const siblingSubconcepts = await db
+    .select()
+    .from(nodes)
+    .where(
+      and(
+        eq(nodes.parentId, currentSubconcept.parentId),
+        eq(nodes.type, "subconcept"),
+      ),
+    );
+
+  const byId = new Map(siblingSubconcepts.map((node) => [node.id, node]));
+  const byTitle = new Map(
+    siblingSubconcepts.map((node) => [titleKey(node.title), node]),
+  );
+  const existingTitleSet = new Set(
+    siblingSubconcepts.map((node) => titleKey(node.title)),
+  );
+  const seenTitles = new Set<string>();
+
+  const deduped: SubconceptReviewAddition[] = [];
+  for (const candidate of candidates) {
+    const cleanTitle = candidate.title.trim();
+    const cleanDesc = candidate.desc.trim();
+    if (!cleanTitle || !cleanDesc) continue;
+    const key = titleKey(cleanTitle);
+    if (seenTitles.has(key) || existingTitleSet.has(key)) continue;
+    seenTitles.add(key);
+    deduped.push({
+      title: cleanTitle,
+      desc: cleanDesc,
+      reason: candidate.reason,
+      depends_on: Array.isArray(candidate.depends_on)
+        ? candidate.depends_on
+        : [],
+      unlocks: Array.isArray(candidate.unlocks) ? candidate.unlocks : [],
+    });
+  }
+
+  if (!deduped.length) {
+    return { insertedSubconcepts: [], createdEdges: [] };
+  }
+
+  const insertedSubconcepts: NodeRow[] = [];
+  const createdEdges: { source: string; target: string }[] = [];
+
+  for (const candidate of deduped) {
+    const subconceptId = uuid();
+    await db.insert(nodes).values({
+      id: subconceptId,
+      userId,
+      type: "subconcept",
+      branchId: currentSubconcept.branchId,
+      parentId: currentSubconcept.parentId,
+      title: candidate.title,
+      desc: candidate.desc,
+    });
+
+    const created = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, subconceptId));
+    const inserted = created[0];
+    insertedSubconcepts.push(inserted);
+    byId.set(inserted.id, inserted);
+    byTitle.set(titleKey(inserted.title), inserted);
+
+    let dependsOnIds = candidate.depends_on
+      .map((title) => byTitle.get(titleKey(title))?.id)
+      .filter((id): id is string => !!id && id !== inserted.id);
+    let unlockIds = candidate.unlocks
+      .map((title) => byTitle.get(titleKey(title))?.id)
+      .filter(
+        (id): id is string =>
+          !!id && id !== inserted.id && !dependsOnIds.includes(id),
+      );
+
+    if (!dependsOnIds.length && !unlockIds.length) {
+      dependsOnIds = [currentSubconcept.id];
+    }
+
+    for (const depId of dependsOnIds) {
+      await createEdgeIfMissing(depId, inserted.id);
+      const sourceTitle = byId.get(depId)?.title ?? depId;
+      createdEdges.push({ source: sourceTitle, target: inserted.title });
+    }
+
+    for (const unlockId of unlockIds) {
+      await createEdgeIfMissing(inserted.id, unlockId);
+      const targetTitle = byId.get(unlockId)?.title ?? unlockId;
+      createdEdges.push({ source: inserted.title, target: targetTitle });
+    }
+
+    if (dependsOnIds.length && unlockIds.length) {
+      for (const depId of dependsOnIds) {
+        for (const unlockId of unlockIds) {
+          const direct = await db
+            .select()
+            .from(nodeEdges)
+            .where(
+              and(
+                eq(nodeEdges.sourceNodeId, depId),
+                eq(nodeEdges.targetNodeId, unlockId),
+              ),
+            );
+          for (const edge of direct) {
+            await db.delete(nodeEdges).where(eq(nodeEdges.id, edge.id));
+          }
+        }
+      }
+    }
+  }
+
+  return { insertedSubconcepts, createdEdges };
 }
 
 // POST /api/agents/topics/:topicNodeId/run
@@ -784,7 +1142,9 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
         prompt: `Concept agent adaptive insertion for: ${conceptNode.title}`,
         responseMeta: JSON.stringify({
           insertedCount: insertionResult.insertedConcepts.length,
-          insertedTitles: insertionResult.insertedConcepts.map((node) => node.title),
+          insertedTitles: insertionResult.insertedConcepts.map(
+            (node) => node.title,
+          ),
           assessmentId: diagnosticSummary.assessmentId,
         }),
       });
@@ -802,6 +1162,185 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
       subconceptEdges: subconceptGraph.edges,
       insertedConcepts: insertionResult.insertedConcepts,
       insertedConceptEdges: insertionResult.createdEdges,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/agents/nodes/:nodeId/review
+// Run post-completion review and optionally enrich the graph with new nodes.
+router.post("/nodes/:nodeId/review", async (req, res, next) => {
+  try {
+    const { userId, overview, maxAdditions } = req.body as {
+      userId?: string;
+      overview?: string;
+      maxAdditions?: number;
+    };
+
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    const nodeResult = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, req.params.nodeId));
+    if (!nodeResult.length) {
+      return res.status(404).json({ error: "Node not found" });
+    }
+
+    const currentNode = nodeResult[0];
+    if (currentNode.type !== "concept" && currentNode.type !== "subconcept") {
+      return res.status(400).json({
+        error: "Review agent supports only concept or subconcept nodes",
+      });
+    }
+
+    let topicTitle = "Current Topic";
+    if (currentNode.type === "concept" && currentNode.parentId) {
+      const topicResult = await db
+        .select()
+        .from(nodes)
+        .where(eq(nodes.id, currentNode.parentId));
+      if (topicResult.length) topicTitle = topicResult[0].title;
+    }
+
+    if (currentNode.type === "subconcept" && currentNode.parentId) {
+      const parentConceptResult = await db
+        .select()
+        .from(nodes)
+        .where(eq(nodes.id, currentNode.parentId));
+      if (parentConceptResult.length) {
+        const parentConcept = parentConceptResult[0];
+        if (parentConcept.parentId) {
+          const topicResult = await db
+            .select()
+            .from(nodes)
+            .where(eq(nodes.id, parentConcept.parentId));
+          topicTitle = topicResult.length
+            ? topicResult[0].title
+            : parentConcept.title;
+        } else {
+          topicTitle = parentConcept.title;
+        }
+      }
+    }
+
+    const { siblingNodes, siblingEdges } = await loadSiblingGraph(currentNode);
+    const finalOverview = await buildOverviewForNodeReview(
+      userId,
+      currentNode,
+      overview,
+    );
+
+    const reviewDecision = await reviewLearningPath({
+      level: currentNode.type as "concept" | "subconcept",
+      topicTitle,
+      currentNodeTitle: currentNode.title,
+      currentNodeDesc: currentNode.desc,
+      overview: finalOverview,
+      siblingNodes: siblingNodes.map((node) => ({
+        title: node.title,
+        desc: node.desc,
+      })),
+      siblingEdges,
+      maxAdditions,
+    });
+
+    if (!reviewDecision.should_add) {
+      return res.json({
+        agent: "path_review",
+        status: "no_change",
+        nodeId: currentNode.id,
+        level: currentNode.type,
+        decision: reviewDecision,
+        insertedNodes: [],
+        createdEdges: [],
+      });
+    }
+
+    if (currentNode.type === "concept") {
+      const conceptAdditions = (reviewDecision.concept_additions ?? []).map(
+        (item: ConceptReviewAddition) => ({
+          title: item.title,
+          desc: item.desc,
+          insertAfterTitle: item.insert_after,
+        }),
+      );
+
+      const insertionResult = await insertConceptAdditions(
+        userId,
+        currentNode,
+        conceptAdditions,
+      );
+
+      if (insertionResult.insertedConcepts.length) {
+        await db.insert(nodeGenerations).values({
+          id: uuid(),
+          nodeId: currentNode.id,
+          trigger: "manual_regenerate",
+          model: "claude-sonnet-4-6",
+          prompt: `Post-completion concept review for: ${currentNode.title}`,
+          responseMeta: JSON.stringify({
+            mode: "path_review_agent",
+            level: "concept",
+            insertedCount: insertionResult.insertedConcepts.length,
+            insertedTitles: insertionResult.insertedConcepts.map(
+              (n) => n.title,
+            ),
+            notes: reviewDecision.notes ?? null,
+          }),
+        });
+      }
+
+      return res.json({
+        agent: "path_review",
+        status: insertionResult.insertedConcepts.length
+          ? "updated"
+          : "no_change",
+        nodeId: currentNode.id,
+        level: currentNode.type,
+        decision: reviewDecision,
+        insertedNodes: insertionResult.insertedConcepts,
+        createdEdges: insertionResult.createdEdges,
+      });
+    }
+
+    const subconceptAdditions = reviewDecision.subconcept_additions ?? [];
+    const insertionResult = await insertSubconceptAdditions(
+      userId,
+      currentNode,
+      subconceptAdditions as SubconceptReviewAddition[],
+    );
+
+    if (insertionResult.insertedSubconcepts.length) {
+      await db.insert(nodeGenerations).values({
+        id: uuid(),
+        nodeId: currentNode.id,
+        trigger: "manual_regenerate",
+        model: "claude-sonnet-4-6",
+        prompt: `Post-completion subconcept review for: ${currentNode.title}`,
+        responseMeta: JSON.stringify({
+          mode: "path_review_agent",
+          level: "subconcept",
+          insertedCount: insertionResult.insertedSubconcepts.length,
+          insertedTitles: insertionResult.insertedSubconcepts.map(
+            (n) => n.title,
+          ),
+          notes: reviewDecision.notes ?? null,
+        }),
+      });
+    }
+
+    return res.json({
+      agent: "path_review",
+      status: insertionResult.insertedSubconcepts.length
+        ? "updated"
+        : "no_change",
+      nodeId: currentNode.id,
+      level: currentNode.type,
+      decision: reviewDecision,
+      insertedNodes: insertionResult.insertedSubconcepts,
+      createdEdges: insertionResult.createdEdges,
     });
   } catch (e) {
     next(e);
