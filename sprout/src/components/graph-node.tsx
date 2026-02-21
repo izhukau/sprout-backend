@@ -15,11 +15,11 @@ export type GraphNode = Node<GraphNodeData, "graph">;
 
 const nodeVariants = cva(
   [
-    "relative overflow-hidden flex items-center gap-3 rounded-xl px-4 py-3",
+    "relative overflow-hidden flex items-center gap-4 rounded-2xl px-5 py-4",
     "bg-[rgba(17,34,20,0.55)] backdrop-blur-[16px]",
     "border border-[rgba(46,232,74,0.15)]",
     "shadow-[0_8px_32px_rgba(0,0,0,0.3)]",
-    "text-white font-sans text-sm leading-tight",
+    "text-white font-sans text-base leading-snug",
     "transition-all duration-300 ease-out",
     "hover:shadow-[0_0_20px_rgba(46,232,74,0.25)]",
     "hover:border-[rgba(46,232,74,0.3)]",
@@ -71,7 +71,7 @@ function GraphNodeComponent({ data, selected }: NodeProps<GraphNode>) {
       >
         {/* Liquid glass light refraction highlight */}
         <div className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-b from-white/[0.06] to-transparent" />
-        <Icon className={cn("h-4 w-4 shrink-0", iconClassName)} />
+        <Icon className={cn("h-5 w-5 shrink-0", iconClassName)} />
         <span className="min-w-0">{label}</span>
       </div>
       <Handle

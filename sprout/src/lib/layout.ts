@@ -1,8 +1,8 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
 
-const NODE_WIDTH = 280;
-const NODE_HEIGHT = 52;
+const NODE_WIDTH = 340;
+const NODE_HEIGHT = 72;
 
 export function getLayoutedElements(
   nodes: Node[],
