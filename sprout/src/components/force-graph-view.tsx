@@ -3,11 +3,12 @@
 import { forceX, forceY } from "d3-force";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 import type { ForceNode } from "@/lib/graph-utils";
-import { toForceGraphData } from "@/lib/graph-utils";
+import { buildBranchColorMap, toForceGraphData } from "@/lib/graph-utils";
 import { mockBranches, mockNodes } from "@/lib/mock-data";
 
-const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
+const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
   ssr: false,
 });
 
@@ -24,11 +25,8 @@ mockBranches.forEach((branch, i) => {
 
 const graphData = toForceGraphData(mockNodes);
 
-const COLOR_MAP = {
-  root: "#2EE84A",
-  concept: "#3DBF5A",
-  subconcept: "#1A6B2A",
-} as const;
+const BRANCH_COLORS = buildBranchColorMap(mockBranches);
+const ROOT_COLOR = "#ffffff";
 
 type ForceGraphViewProps = {
   highlightedBranchId: string | null;
@@ -41,22 +39,22 @@ export function ForceGraphView({
 }: ForceGraphViewProps) {
   // biome-ignore lint/suspicious/noExplicitAny: react-force-graph ref type is untyped
   const graphRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const focusNodeRef = useRef<{ x: number; y: number; z: number } | null>(null);
 
   useEffect(() => {
-    setDimensions({
-      width: window.innerWidth,
-      height: window.innerHeight,
-    });
+    const el = containerRef.current;
+    if (!el) return;
 
-    const handleResize = () => {
-      setDimensions({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
+    const update = () => {
+      setDimensions({ width: el.clientWidth, height: el.clientHeight });
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   // Apply branch clustering forces once graph is mounted
@@ -66,8 +64,8 @@ export function ForceGraphView({
 
     fg.d3Force(
       "x",
-      forceX((d) => {
-        const node = d as unknown as ForceNode;
+      forceX((d: unknown) => {
+        const node = d as ForceNode;
         if (!node.branchId) return 0;
         return branchCenters.get(node.branchId)?.x ?? 0;
       }).strength(0.3),
@@ -75,8 +73,8 @@ export function ForceGraphView({
 
     fg.d3Force(
       "y",
-      forceY((d) => {
-        const node = d as unknown as ForceNode;
+      forceY((d: unknown) => {
+        const node = d as ForceNode;
         if (!node.branchId) return 0;
         return branchCenters.get(node.branchId)?.y ?? 0;
       }).strength(0.3),
@@ -86,18 +84,46 @@ export function ForceGraphView({
     fg.d3Force("link")?.distance(40);
 
     fg.d3ReheatSimulation();
+
+    // Fit all nodes once simulation cools down
+    setTimeout(() => fg.zoomToFit(600, 0), 2000);
   }, []);
 
-  // Zoom to highlighted branch
+  // Zoom to highlighted branch, centering on the clicked node
   useEffect(() => {
     const fg = graphRef.current;
     if (!fg || !highlightedBranchId) return;
 
-    const center = branchCenters.get(highlightedBranchId);
-    if (center) {
-      fg.centerAt(center.x, center.y, 600);
-      fg.zoom(3, 600);
+    const focus = focusNodeRef.current;
+    if (focus) {
+      fg.cameraPosition(
+        { x: focus.x, y: focus.y, z: focus.z + 150 },
+        { x: focus.x, y: focus.y, z: focus.z },
+        600,
+      );
+      focusNodeRef.current = null;
+      return;
     }
+
+    // Fallback: center on branch centroid (e.g. sidebar click)
+    const branchNodes = graphData.nodes.filter(
+      (n) => n.branchId === highlightedBranchId,
+    ) as (ForceNode & { x?: number; y?: number; z?: number })[];
+
+    if (branchNodes.length === 0) return;
+
+    const cx =
+      branchNodes.reduce((sum, n) => sum + (n.x ?? 0), 0) / branchNodes.length;
+    const cy =
+      branchNodes.reduce((sum, n) => sum + (n.y ?? 0), 0) / branchNodes.length;
+    const cz =
+      branchNodes.reduce((sum, n) => sum + (n.z ?? 0), 0) / branchNodes.length;
+
+    fg.cameraPosition(
+      { x: cx, y: cy, z: cz + 150 },
+      { x: cx, y: cy, z: cz },
+      600,
+    );
   }, [highlightedBranchId]);
 
   // Reset zoom when no branch is highlighted
@@ -105,94 +131,131 @@ export function ForceGraphView({
     const fg = graphRef.current;
     if (!fg || highlightedBranchId) return;
 
-    fg.zoomToFit(600, 60);
+    fg.zoomToFit(600, 0);
   }, [highlightedBranchId]);
 
-  const handleNodeClick = useCallback(
+  const focusAndSelect = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: force-graph node type
     (node: any) => {
+      const fg = graphRef.current;
+      const x = node.x ?? 0;
+      const y = node.y ?? 0;
+      const z = node.z ?? 0;
+
+      if (fg) {
+        fg.cameraPosition({ x, y, z: z + 150 }, { x, y, z }, 600);
+      }
+
+      focusNodeRef.current = { x, y, z };
       onNodeClick(node.id);
     },
     [onNodeClick],
   );
 
-  const nodeCanvasObject = useCallback(
-    // biome-ignore lint/suspicious/noExplicitAny: canvas rendering callback
-    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const { variant, completed, branchId, label } = node as ForceNode;
-      const x = node.x as number;
-      const y = node.y as number;
+  // Track drag start position to detect micro-drags (accidental)
+  const dragStartRef = useRef<{ x: number; y: number; z: number } | null>(null);
 
+  const handleNodeDrag = useCallback(
+    // biome-ignore lint/suspicious/noExplicitAny: force-graph node type
+    (node: any) => {
+      if (!dragStartRef.current) {
+        dragStartRef.current = {
+          x: node.x ?? 0,
+          y: node.y ?? 0,
+          z: node.z ?? 0,
+        };
+      }
+    },
+    [],
+  );
+
+  const handleNodeDragEnd = useCallback(
+    // biome-ignore lint/suspicious/noExplicitAny: force-graph node type
+    (node: any) => {
+      const start = dragStartRef.current;
+      dragStartRef.current = null;
+      if (!start) return;
+
+      const dx = (node.x ?? 0) - start.x;
+      const dy = (node.y ?? 0) - start.y;
+      const dz = (node.z ?? 0) - start.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      // If barely moved, treat as a click
+      if (dist < 5) {
+        focusAndSelect(node);
+      }
+    },
+    [focusAndSelect],
+  );
+
+  const nodeThreeObject = useCallback(
+    // biome-ignore lint/suspicious/noExplicitAny: force-graph node type
+    (node: any) => {
+      const { variant, completed, branchId } = node as ForceNode;
       const isHighlighted =
         !highlightedBranchId ||
         branchId === highlightedBranchId ||
         variant === "root";
-      const alpha = isHighlighted ? 1 : 0.15;
 
-      const baseColor = COLOR_MAP[variant];
-      const radius = variant === "root" ? 8 : variant === "concept" ? 5 : 3;
-      const displayRadius =
-        isHighlighted && highlightedBranchId ? radius * 1.3 : radius;
+      const radius = variant === "root" ? 3 : variant === "concept" ? 2 : 1;
+      const branchColors = branchId ? BRANCH_COLORS.get(branchId) : null;
+      const color =
+        variant === "root"
+          ? ROOT_COLOR
+          : (branchColors?.[variant] ?? ROOT_COLOR);
+      const opacity = isHighlighted ? (completed ? 1 : 0.6) : 0.15;
 
-      // Outer glow
-      if (isHighlighted && (variant !== "subconcept" || completed)) {
-        ctx.beginPath();
-        ctx.arc(x, y, displayRadius + 4, 0, 2 * Math.PI);
-        ctx.fillStyle = `${baseColor}${Math.round(alpha * 0.12 * 255)
-          .toString(16)
-          .padStart(2, "0")}`;
-        ctx.fill();
+      const geometry = new THREE.SphereGeometry(radius, 16, 16);
+      const material = new THREE.MeshLambertMaterial({
+        color,
+        transparent: true,
+        opacity,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+
+      // Label sprite — always for root/concept, subconcepts only when branch is focused
+      const showLabel =
+        variant !== "subconcept" ||
+        (highlightedBranchId && branchId === highlightedBranchId);
+      if (showLabel) {
+        const { label } = node as ForceNode;
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          canvas.width = 256;
+          canvas.height = 64;
+          ctx.font = "24px monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.8})`;
+          ctx.fillText(label, 128, 40);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          const spriteMaterial = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+          });
+          const sprite = new THREE.Sprite(spriteMaterial);
+          sprite.scale.set(16, 4, 1);
+          sprite.position.set(0, -(radius + 3), 0);
+          mesh.add(sprite);
+        }
       }
 
-      // Node circle
-      ctx.beginPath();
-      ctx.arc(x, y, displayRadius, 0, 2 * Math.PI);
-      ctx.fillStyle = completed
-        ? `${baseColor}${Math.round(alpha * 255)
-            .toString(16)
-            .padStart(2, "0")}`
-        : `${baseColor}${Math.round(alpha * 0.5 * 255)
-            .toString(16)
-            .padStart(2, "0")}`;
-      ctx.fill();
-
-      // Label for root and concept nodes (subconcepts too small)
-      if (variant !== "subconcept" && globalScale > 0.8) {
-        const fontSize = Math.max(10 / globalScale, 3);
-        ctx.font = `${fontSize}px monospace`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.7})`;
-        ctx.fillText(label, x, y + displayRadius + 3);
-      }
-
-      // Store for hit detection
-      node.__radius = displayRadius;
+      return mesh;
     },
     [highlightedBranchId],
-  );
-
-  const nodePointerAreaPaint = useCallback(
-    // biome-ignore lint/suspicious/noExplicitAny: canvas hit area callback
-    (node: any, color: string, ctx: CanvasRenderingContext2D) => {
-      const r = (node.__radius as number) || 5;
-      ctx.beginPath();
-      ctx.arc(node.x as number, node.y as number, r + 4, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
-      ctx.fill();
-    },
-    [],
   );
 
   const linkColor = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: force-graph link type
     (link: any) => {
-      if (!highlightedBranchId) return "rgba(46, 232, 74, 0.08)";
+      if (!highlightedBranchId) return "rgba(255, 255, 255, 0.06)";
 
       const sourceNode = typeof link.source === "object" ? link.source : null;
       const targetNode = typeof link.target === "object" ? link.target : null;
 
-      if (!sourceNode || !targetNode) return "rgba(46, 232, 74, 0.03)";
+      if (!sourceNode || !targetNode) return "rgba(255, 255, 255, 0.02)";
 
       const sourceInBranch =
         sourceNode.branchId === highlightedBranchId ||
@@ -201,30 +264,33 @@ export function ForceGraphView({
         targetNode.branchId === highlightedBranchId ||
         targetNode.variant === "root";
 
-      if (sourceInBranch && targetInBranch) return "rgba(46, 232, 74, 0.2)";
-      return "rgba(46, 232, 74, 0.03)";
+      if (sourceInBranch && targetInBranch) return "rgba(255, 255, 255, 0.15)";
+      return "rgba(255, 255, 255, 0.02)";
     },
     [highlightedBranchId],
   );
 
-  if (dimensions.width === 0) return null;
+  if (dimensions.width === 0)
+    return <div ref={containerRef} className="h-full w-full" />;
 
   return (
-    <ForceGraph2D
-      ref={graphRef}
-      graphData={graphData}
-      width={dimensions.width}
-      height={dimensions.height}
-      backgroundColor="#0A1A0F"
-      nodeCanvasObject={nodeCanvasObject}
-      nodePointerAreaPaint={nodePointerAreaPaint}
-      onNodeClick={handleNodeClick}
-      linkColor={linkColor}
-      linkWidth={1}
-      cooldownTicks={200}
-      minZoom={0.5}
-      maxZoom={10}
-      enableNodeDrag={false}
-    />
+    <div ref={containerRef} className="h-full w-full">
+      <ForceGraph3D
+        ref={graphRef}
+        graphData={graphData}
+        width={dimensions.width}
+        height={dimensions.height}
+        backgroundColor="#0A1A0F"
+        nodeThreeObject={nodeThreeObject}
+        onNodeClick={focusAndSelect}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragEnd={handleNodeDragEnd}
+        linkColor={linkColor}
+        linkWidth={1}
+        linkOpacity={0.6}
+        cooldownTicks={200}
+        enableNodeDrag={true}
+      />
+    </div>
   );
 }

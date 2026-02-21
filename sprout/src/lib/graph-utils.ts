@@ -1,5 +1,23 @@
 import type { Edge } from "@xyflow/react";
 import type { GraphNode } from "@/components/graph-node";
+import type { Branch } from "@/lib/mock-data";
+
+export type BranchColors = { concept: string; subconcept: string };
+
+/** Build a stable color map for branches using golden-angle hue spacing */
+export function buildBranchColorMap(
+  branches: Branch[],
+): Map<string, BranchColors> {
+  const map = new Map<string, BranchColors>();
+  branches.forEach((branch, i) => {
+    const hue = (i * 137.5) % 360;
+    map.set(branch.id, {
+      concept: `hsl(${hue}, 80%, 65%)`,
+      subconcept: `hsl(${hue}, 50%, 35%)`,
+    });
+  });
+  return map;
+}
 
 export function buildEdgesFromNodes(nodes: GraphNode[]): Edge[] {
   return nodes
@@ -49,7 +67,7 @@ export type ForceLink = {
   target: string;
 };
 
-/** Convert GraphNode[] to the format expected by react-force-graph-2d */
+/** Convert GraphNode[] to the format expected by react-force-graph */
 export function toForceGraphData(nodes: GraphNode[]): {
   nodes: ForceNode[];
   links: ForceLink[];

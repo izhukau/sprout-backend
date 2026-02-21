@@ -20,7 +20,7 @@
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-force-graph-2d": "^1.29.1",
+    "react-force-graph-3d": "^1.29.1",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
@@ -31,6 +31,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.183.0",
     "babel-plugin-react-compiler": "1.0.0",
     "shadcn": "^3.8.5",
     "tailwindcss": "^4",

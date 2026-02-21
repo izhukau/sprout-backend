@@ -4,8 +4,11 @@ import { ArrowLeft, ArrowRight, GitBranch } from "lucide-react";
 import type { GraphNode } from "@/components/graph-node";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { Branch } from "@/lib/mock-data";
+import { buildBranchColorMap } from "@/lib/graph-utils";
+import { type Branch, mockBranches } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+
+const BRANCH_COLORS = buildBranchColorMap(mockBranches);
 
 export type GraphView =
   | { level: "global" }
@@ -114,12 +117,11 @@ function GlobalLevel({
               )}
             >
               <GitBranch
-                className={cn(
-                  "h-4 w-4 shrink-0 transition-colors",
-                  isActive
-                    ? "text-[#2EE84A]"
-                    : "text-[#3DBF5A]/40 group-hover:text-[#3DBF5A]/60",
-                )}
+                className="h-4 w-4 shrink-0 transition-colors"
+                style={{
+                  color: BRANCH_COLORS.get(branch.id)?.concept,
+                  opacity: isActive ? 1 : 0.5,
+                }}
               />
               <span className="min-w-0 truncate text-sm">{branch.title}</span>
             </button>
