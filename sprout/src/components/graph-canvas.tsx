@@ -13,8 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { type GraphNode, graphNodeTypes } from "@/components/graph-node";
 import { getLayoutedElements } from "@/lib/layout";
 
-const mainEdgeStyle = { stroke: "#3DBF5A", strokeWidth: 2 };
-const prereqEdgeStyle = {
+const edgeStyle = {
   stroke: "#2A6B30",
   strokeWidth: 1.5,
   strokeDasharray: "6,4",
@@ -29,6 +28,7 @@ const initialNodes: GraphNode[] = [
     data: {
       label: "Find acceleration of block on incline",
       variant: "problem",
+      completed: true,
     },
     position: { x: 0, y: 0 },
   },
@@ -36,19 +36,31 @@ const initialNodes: GraphNode[] = [
   {
     id: "step-fbd",
     type: "graph",
-    data: { label: "Step 1: Draw free-body diagram", variant: "step" },
+    data: {
+      label: "Step 1: Draw free-body diagram",
+      variant: "step",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
   {
     id: "step-decompose",
     type: "graph",
-    data: { label: "Step 2: Decompose forces along incline", variant: "step" },
+    data: {
+      label: "Step 2: Decompose forces along incline",
+      variant: "step",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
   {
     id: "step-normal",
     type: "graph",
-    data: { label: "Step 3: Find normal force N = mg·cos θ", variant: "step" },
+    data: {
+      label: "Step 3: Find normal force N = mg·cos θ",
+      variant: "step",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
   {
@@ -70,47 +82,63 @@ const initialNodes: GraphNode[] = [
     position: { x: 0, y: 0 },
   },
 
-  // Prereq branch off Step 2: trig knowledge gap
+  // Branch off Step 2: trig subgraph
   {
-    id: "prereq-trig",
+    id: "trig",
     type: "graph",
-    data: { label: "Prereq: sin & cos on right triangles", variant: "prereq" },
+    data: {
+      label: "sin & cos on right triangles",
+      variant: "step",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-trig-1",
+    id: "trig-1",
     type: "graph",
-    data: { label: "What is a right triangle?", variant: "prereq" },
+    data: {
+      label: "What is a right triangle?",
+      variant: "step",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-trig-2",
+    id: "trig-2",
     type: "graph",
-    data: { label: "SOH-CAH-TOA definitions", variant: "prereq" },
+    data: {
+      label: "SOH-CAH-TOA definitions",
+      variant: "step",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-trig-3",
+    id: "trig-practice",
     type: "graph",
-    data: { label: "Practice: find sin 30° and cos 30°", variant: "practice" },
+    data: {
+      label: "Practice: find sin 30° and cos 30°",
+      variant: "practice",
+      completed: true,
+    },
     position: { x: 0, y: 0 },
   },
 
-  // Prereq branch off Step 4: friction knowledge gap
+  // Branch off Step 4: friction subgraph
   {
-    id: "prereq-friction",
+    id: "friction",
     type: "graph",
-    data: { label: "Prereq: Friction", variant: "prereq" },
+    data: { label: "Understanding friction", variant: "step" },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-friction-1",
+    id: "friction-1",
     type: "graph",
-    data: { label: "What causes friction?", variant: "prereq" },
+    data: { label: "What causes friction?", variant: "step" },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-friction-2",
+    id: "friction-practice",
     type: "graph",
     data: {
       label: "Practice: compute f = μN given values",
@@ -119,21 +147,21 @@ const initialNodes: GraphNode[] = [
     position: { x: 0, y: 0 },
   },
 
-  // Prereq branch off Step 6: Newton's 2nd law gap
+  // Branch off Step 6: Newton's 2nd law subgraph
   {
-    id: "prereq-newton",
+    id: "newton",
     type: "graph",
-    data: { label: "Prereq: Newton's 2nd Law", variant: "prereq" },
+    data: { label: "Newton's 2nd Law", variant: "step" },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-newton-1",
+    id: "newton-1",
     type: "graph",
-    data: { label: "F = ma: what each variable means", variant: "prereq" },
+    data: { label: "F = ma: what each variable means", variant: "step" },
     position: { x: 0, y: 0 },
   },
   {
-    id: "prereq-newton-2",
+    id: "newton-practice",
     type: "graph",
     data: { label: "Practice: solve a = F/m", variant: "practice" },
     position: { x: 0, y: 0 },
@@ -142,129 +170,68 @@ const initialNodes: GraphNode[] = [
 
 const initialEdges: Edge[] = [
   // Main solution spine
-  {
-    id: "e-problem-fbd",
-    source: "problem",
-    target: "step-fbd",
-    animated: true,
-    style: mainEdgeStyle,
-  },
-  {
-    id: "e-fbd-decompose",
-    source: "step-fbd",
-    target: "step-decompose",
-    animated: true,
-    style: mainEdgeStyle,
-  },
-  {
-    id: "e-decompose-normal",
-    source: "step-decompose",
-    target: "step-normal",
-    animated: true,
-    style: mainEdgeStyle,
-  },
-  {
-    id: "e-normal-friction",
-    source: "step-normal",
-    target: "step-friction",
-    animated: true,
-    style: mainEdgeStyle,
-  },
-  {
-    id: "e-friction-net",
-    source: "step-friction",
-    target: "step-net",
-    animated: true,
-    style: mainEdgeStyle,
-  },
-  {
-    id: "e-net-newton",
-    source: "step-net",
-    target: "step-newton",
-    animated: true,
-    style: mainEdgeStyle,
-  },
+  { id: "e-problem-fbd", source: "problem", target: "step-fbd" },
+  { id: "e-fbd-decompose", source: "step-fbd", target: "step-decompose" },
+  { id: "e-decompose-normal", source: "step-decompose", target: "step-normal" },
+  { id: "e-normal-friction", source: "step-normal", target: "step-friction" },
+  { id: "e-friction-net", source: "step-friction", target: "step-net" },
+  { id: "e-net-newton", source: "step-net", target: "step-newton" },
 
-  // Trig prereq branch (off Step 2)
-  {
-    id: "e-decompose-trig",
-    source: "step-decompose",
-    target: "prereq-trig",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-trig-1",
-    source: "prereq-trig",
-    target: "prereq-trig-1",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-trig-2",
-    source: "prereq-trig-1",
-    target: "prereq-trig-2",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-trig-3",
-    source: "prereq-trig-2",
-    target: "prereq-trig-3",
-    style: prereqEdgeStyle,
-  },
+  // Trig branch (off Step 2)
+  { id: "e-decompose-trig", source: "step-decompose", target: "trig" },
+  { id: "e-trig-1", source: "trig", target: "trig-1" },
+  { id: "e-trig-2", source: "trig-1", target: "trig-2" },
+  { id: "e-trig-3", source: "trig-2", target: "trig-practice" },
 
-  // Friction prereq branch (off Step 4)
-  {
-    id: "e-friction-prereq",
-    source: "step-friction",
-    target: "prereq-friction",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-friction-1",
-    source: "prereq-friction",
-    target: "prereq-friction-1",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-friction-2",
-    source: "prereq-friction-1",
-    target: "prereq-friction-2",
-    style: prereqEdgeStyle,
-  },
+  // Friction branch (off Step 4)
+  { id: "e-friction-branch", source: "step-friction", target: "friction" },
+  { id: "e-friction-1", source: "friction", target: "friction-1" },
+  { id: "e-friction-2", source: "friction-1", target: "friction-practice" },
 
-  // Newton prereq branch (off Step 6)
-  {
-    id: "e-newton-prereq",
-    source: "step-newton",
-    target: "prereq-newton",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-newton-1",
-    source: "prereq-newton",
-    target: "prereq-newton-1",
-    style: prereqEdgeStyle,
-  },
-  {
-    id: "e-newton-2",
-    source: "prereq-newton-1",
-    target: "prereq-newton-2",
-    style: prereqEdgeStyle,
-  },
+  // Newton branch (off Step 6)
+  { id: "e-newton-branch", source: "step-newton", target: "newton" },
+  { id: "e-newton-1", source: "newton", target: "newton-1" },
+  { id: "e-newton-2", source: "newton-1", target: "newton-practice" },
 ];
 
+// Derive frontier: edges from completed → not-completed nodes
+const nodeCompletionMap = new Map(
+  initialNodes.map((n) => [n.id, !!n.data.completed]),
+);
+
+const nextNodeIds = new Set(
+  initialEdges
+    .filter(
+      (e) =>
+        nodeCompletionMap.get(e.source) && !nodeCompletionMap.get(e.target),
+    )
+    .map((e) => e.target),
+);
+
+const styledEdges = initialEdges.map((edge) => {
+  const isFrontier =
+    nodeCompletionMap.get(edge.source) && !nodeCompletionMap.get(edge.target);
+  return { ...edge, style: edgeStyle, animated: isFrontier };
+});
+
+const nodesWithNext = initialNodes.map((node) =>
+  nextNodeIds.has(node.id)
+    ? { ...node, data: { ...node.data, next: true } }
+    : node,
+);
+
 const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-  initialNodes,
-  initialEdges,
+  nodesWithNext,
+  styledEdges,
 );
 
 function minimapNodeColor(node: GraphNode): string {
+  if (node.data?.completed) return "#2EE84A";
   switch (node.data?.variant) {
     case "problem":
       return "#2EE84A";
     case "step":
       return "#1A4D20";
-    case "prereq":
-      return "#2A6B30";
     case "practice":
       return "#00FF41";
     default:
