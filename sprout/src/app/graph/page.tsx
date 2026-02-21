@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import GraphCanvas from "@/components/graph-canvas";
+import { GraphViewContainer } from "@/components/graph-view";
 
 export const metadata: Metadata = {
   title: "Graph",
 };
 
 export default function GraphPage() {
-  return <GraphCanvas />;
+  return <GraphViewContainer />;
 }

@@ -1,11 +1,13 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, GitBranch } from "lucide-react";
-import type { Branch } from "@/lib/mock-data";
 import type { GraphNode } from "@/components/graph-node";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import type { Branch } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
-type GraphView =
+export type GraphView =
   | { level: "global" }
   | { level: "branch"; branchId: string }
   | { level: "concept"; branchId: string; conceptId: string };
@@ -38,13 +40,14 @@ export function GraphSidebar({
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-[rgba(46,232,74,0.08)] px-5 py-4">
         {view.level !== "global" && (
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="icon-sm"
             onClick={onBack}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[rgba(46,232,74,0.15)] bg-[rgba(17,34,20,0.6)] text-[#3DBF5A] transition-colors hover:border-[rgba(46,232,74,0.3)] hover:text-[#2EE84A]"
+            className="shrink-0 border-[rgba(46,232,74,0.15)] bg-[rgba(17,34,20,0.6)] text-[#3DBF5A] hover:border-[rgba(46,232,74,0.3)] hover:bg-[rgba(17,34,20,0.8)] hover:text-[#2EE84A]"
           >
             <ArrowLeft className="h-4 w-4" />
-          </button>
+          </Button>
         )}
         <h2 className="truncate font-mono text-sm font-medium tracking-wide text-[#3DBF5A]/80 uppercase">
           {view.level === "global" && "Branches"}
@@ -56,27 +59,29 @@ export function GraphSidebar({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-3 py-3">
-        {view.level === "global" && (
-          <GlobalLevel
-            branches={branches}
-            highlightedBranchId={highlightedBranchId}
-            onSelectBranch={onSelectBranch}
-            onOpenBranch={onOpenBranch}
-          />
-        )}
-        {view.level === "branch" && (
-          <BranchLevel
-            nodes={nodes}
-            branchId={view.branchId}
-            onSelectConcept={onSelectConcept}
-            onOpenConcept={onOpenConcept}
-          />
-        )}
-        {view.level === "concept" && (
-          <ConceptLevel nodes={nodes} conceptId={view.conceptId} />
-        )}
-      </div>
+      <ScrollArea className="flex-1">
+        <div className="px-3 py-3">
+          {view.level === "global" && (
+            <GlobalLevel
+              branches={branches}
+              highlightedBranchId={highlightedBranchId}
+              onSelectBranch={onSelectBranch}
+              onOpenBranch={onOpenBranch}
+            />
+          )}
+          {view.level === "branch" && (
+            <BranchLevel
+              nodes={nodes}
+              branchId={view.branchId}
+              onSelectConcept={onSelectConcept}
+              onOpenConcept={onOpenConcept}
+            />
+          )}
+          {view.level === "concept" && (
+            <ConceptLevel nodes={nodes} conceptId={view.conceptId} />
+          )}
+        </div>
+      </ScrollArea>
     </aside>
   );
 }
@@ -111,21 +116,24 @@ function GlobalLevel({
               <GitBranch
                 className={cn(
                   "h-4 w-4 shrink-0 transition-colors",
-                  isActive ? "text-[#2EE84A]" : "text-[#3DBF5A]/40 group-hover:text-[#3DBF5A]/60",
+                  isActive
+                    ? "text-[#2EE84A]"
+                    : "text-[#3DBF5A]/40 group-hover:text-[#3DBF5A]/60",
                 )}
               />
               <span className="min-w-0 truncate text-sm">{branch.title}</span>
             </button>
 
             {isActive && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => onOpenBranch(branch.id)}
-                className="mt-1 ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-[#2EE84A] transition-all hover:bg-[rgba(46,232,74,0.1)]"
+                className="mt-1 ml-7 text-xs font-medium text-[#2EE84A] hover:bg-[rgba(46,232,74,0.1)] hover:text-[#2EE84A]"
               >
                 Open Branch
                 <ArrowRight className="h-3 w-3" />
-              </button>
+              </Button>
             )}
           </li>
         );

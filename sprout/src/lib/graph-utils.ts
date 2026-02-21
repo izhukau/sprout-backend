@@ -20,8 +20,7 @@ export function getConceptNodesForBranch(
   branchId: string,
 ): GraphNode[] {
   return allNodes.filter(
-    (n) =>
-      n.data.branchId === branchId && n.data.variant === "concept",
+    (n) => n.data.branchId === branchId && n.data.variant === "concept",
   );
 }
 
@@ -36,6 +35,7 @@ export function getSubconceptNodesForConcept(
 }
 
 export type ForceNode = {
+  [others: string]: unknown;
   id: string;
   label: string;
   variant: "root" | "concept" | "subconcept";
