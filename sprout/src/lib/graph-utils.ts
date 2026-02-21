@@ -42,14 +42,22 @@ export function getConceptNodesForBranch(
   );
 }
 
-/** Get subconcept nodes for a given concept */
+/** Get a concept node and its subconcepts */
 export function getSubconceptNodesForConcept(
   allNodes: GraphNode[],
   conceptId: string,
 ): GraphNode[] {
-  return allNodes.filter(
+  const concept = allNodes.find((n) => n.id === conceptId);
+  const subconcepts = allNodes.filter(
     (n) => n.data.variant === "subconcept" && n.data.parentId === conceptId,
   );
+  if (!concept) return subconcepts;
+  // Null out parentId so no dangling edge to nodes outside this view
+  const conceptAsRoot = {
+    ...concept,
+    data: { ...concept.data, parentId: null },
+  };
+  return [conceptAsRoot, ...subconcepts];
 }
 
 export type ForceNode = {

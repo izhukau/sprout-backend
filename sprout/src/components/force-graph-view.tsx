@@ -30,11 +30,13 @@ const ROOT_COLOR = "#ffffff";
 
 type ForceGraphViewProps = {
   highlightedBranchId: string | null;
+  focusedNodeId: string | null;
   onNodeClick: (nodeId: string) => void;
 };
 
 export function ForceGraphView({
   highlightedBranchId,
+  focusedNodeId,
   onNodeClick,
 }: ForceGraphViewProps) {
   // biome-ignore lint/suspicious/noExplicitAny: react-force-graph ref type is untyped
@@ -42,6 +44,7 @@ export function ForceGraphView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const focusNodeRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const initialFitDone = useRef(false);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -84,9 +87,6 @@ export function ForceGraphView({
     fg.d3Force("link")?.distance(40);
 
     fg.d3ReheatSimulation();
-
-    // Fit all nodes once simulation cools down
-    setTimeout(() => fg.zoomToFit(600, 0), 2000);
   }, []);
 
   // Zoom to highlighted branch, centering on the clicked node
@@ -206,11 +206,16 @@ export function ForceGraphView({
           : (branchColors?.[variant] ?? ROOT_COLOR);
       const opacity = isHighlighted ? (completed ? 1 : 0.6) : 0.15;
 
+      const isFocused = node.id === focusedNodeId;
       const geometry = new THREE.SphereGeometry(radius, 16, 16);
-      const material = new THREE.MeshLambertMaterial({
+      const material = new THREE.MeshStandardMaterial({
         color,
         transparent: true,
         opacity,
+        emissive: isFocused
+          ? new THREE.Color(color)
+          : new THREE.Color(0x000000),
+        emissiveIntensity: isFocused ? 0.6 : 0,
       });
       const mesh = new THREE.Mesh(geometry, material);
 
@@ -244,7 +249,7 @@ export function ForceGraphView({
 
       return mesh;
     },
-    [highlightedBranchId],
+    [highlightedBranchId, focusedNodeId],
   );
 
   const linkColor = useCallback(
@@ -285,6 +290,12 @@ export function ForceGraphView({
         onNodeClick={focusAndSelect}
         onNodeDrag={handleNodeDrag}
         onNodeDragEnd={handleNodeDragEnd}
+        onEngineStop={() => {
+          if (!initialFitDone.current) {
+            initialFitDone.current = true;
+            graphRef.current?.zoomToFit(600, 50);
+          }
+        }}
         linkColor={linkColor}
         linkWidth={1}
         linkOpacity={0.6}

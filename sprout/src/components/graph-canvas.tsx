@@ -9,7 +9,7 @@ import {
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import "@xyflow/react/dist/style.css";
 import { type GraphNode, graphNodeTypes } from "@/components/graph-node";
 import { buildEdgesFromNodes } from "@/lib/graph-utils";
@@ -38,11 +38,17 @@ function minimapNodeColor(node: GraphNode): string {
 type GraphCanvasProps = {
   nodes: GraphNode[];
   onNodeClick?: (nodeId: string) => void;
+  expandedNodeId?: string | null;
+  onOpenConcept?: (conceptId: string) => void;
+  onPaneClick?: () => void;
 };
 
 export default function GraphCanvas({
   nodes: inputNodes,
   onNodeClick,
+  expandedNodeId,
+  onOpenConcept,
+  onPaneClick,
 }: GraphCanvasProps) {
   const { layoutedNodes, layoutedEdges } = useMemo(() => {
     const initialEdges = buildEdgesFromNodes(inputNodes);
@@ -78,8 +84,90 @@ export default function GraphCanvas({
     return { layoutedNodes: result.nodes, layoutedEdges: result.edges };
   }, [inputNodes]);
 
-  const [nodes, , onNodesChange] = useNodesState(layoutedNodes);
-  const [edges, , onEdgesChange] = useEdgesState(layoutedEdges);
+  const nodesWithExpansion = useMemo(() => {
+    const EXPANSION_HEIGHT = 160;
+    const expandedNode = expandedNodeId
+      ? layoutedNodes.find((n) => n.id === expandedNodeId)
+      : null;
+    const expandedY = expandedNode?.position.y ?? 0;
+
+    return layoutedNodes.map((node) => {
+      const isExpanded = node.id === expandedNodeId;
+      const needsShift =
+        expandedNode && !isExpanded && node.position.y > expandedY;
+      return {
+        ...node,
+        zIndex: isExpanded ? 1000 : undefined,
+        position: needsShift
+          ? { ...node.position, y: node.position.y + EXPANSION_HEIGHT }
+          : node.position,
+        data: {
+          ...node.data,
+          expanded: isExpanded,
+          onOpenConcept,
+        },
+      };
+    });
+  }, [layoutedNodes, expandedNodeId, onOpenConcept]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(nodesWithExpansion);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges);
+
+  const prevPositionsRef = useRef<Map<string, { x: number; y: number }>>(
+    new Map(),
+  );
+  const animFrameRef = useRef<number>(0);
+
+  useEffect(() => {
+    cancelAnimationFrame(animFrameRef.current);
+
+    const startPositions = prevPositionsRef.current;
+
+    // First render — no animation needed
+    if (startPositions.size === 0) {
+      setNodes(nodesWithExpansion);
+      prevPositionsRef.current = new Map(
+        nodesWithExpansion.map((n) => [n.id, { ...n.position }]),
+      );
+      return;
+    }
+
+    const startTime = performance.now();
+    const duration = 300;
+
+    function animate(now: number) {
+      const t = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - (1 - t) ** 3; // ease-out cubic
+
+      setNodes(
+        nodesWithExpansion.map((node) => {
+          const from = startPositions.get(node.id) ?? node.position;
+          return {
+            ...node,
+            position: {
+              x: from.x + (node.position.x - from.x) * eased,
+              y: from.y + (node.position.y - from.y) * eased,
+            },
+          };
+        }),
+      );
+
+      if (t < 1) {
+        animFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        prevPositionsRef.current = new Map(
+          nodesWithExpansion.map((n) => [n.id, { ...n.position }]),
+        );
+      }
+    }
+
+    animFrameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [nodesWithExpansion, setNodes]);
+
+  useEffect(() => {
+    setEdges(layoutedEdges);
+  }, [layoutedEdges, setEdges]);
 
   const handleNodeClick = (_event: React.MouseEvent, node: Node) => {
     onNodeClick?.(node.id);
@@ -93,6 +181,7 @@ export default function GraphCanvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        onPaneClick={onPaneClick}
         nodeTypes={graphNodeTypes}
         colorMode="dark"
         fitView

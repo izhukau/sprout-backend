@@ -15,6 +15,8 @@ export function GraphViewContainer() {
   const [highlightedBranchId, setHighlightedBranchId] = useState<string | null>(
     null,
   );
+  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
   const handleSelectBranch = useCallback((branchId: string) => {
     setHighlightedBranchId((prev) => (prev === branchId ? null : branchId));
@@ -32,13 +34,28 @@ export function GraphViewContainer() {
   const handleOpenConcept = useCallback(
     (conceptId: string) => {
       if (view.level === "branch") {
+        setExpandedNodeId(null);
         setView({ level: "concept", branchId: view.branchId, conceptId });
       }
     },
     [view],
   );
 
+  const handleOpenNode = useCallback(
+    (nodeId: string) => {
+      if (view.level === "branch") {
+        handleOpenConcept(nodeId);
+      } else if (view.level === "concept") {
+        // Subconcept "Open" — noop for now, will navigate to learn view later
+        setExpandedNodeId(null);
+      }
+    },
+    [view, handleOpenConcept],
+  );
+
   const handleBack = useCallback(() => {
+    setExpandedNodeId(null);
+    setFocusedNodeId(null);
     if (view.level === "concept") {
       setView({ level: "branch", branchId: view.branchId });
     } else if (view.level === "branch") {
@@ -46,28 +63,55 @@ export function GraphViewContainer() {
     }
   }, [view]);
 
-  const handleForceNodeClick = useCallback((nodeId: string) => {
-    const node = mockNodes.find((n) => n.id === nodeId);
-    if (!node) return;
+  const handleForceNodeClick = useCallback(
+    (nodeId: string) => {
+      const node = mockNodes.find((n) => n.id === nodeId);
+      if (!node) return;
 
-    if (node.data.variant === "root") return;
+      if (node.data.variant === "root") return;
 
-    if (node.data.branchId) {
-      setHighlightedBranchId(node.data.branchId);
-    }
-  }, []);
+      // Second click on focused node → navigate to ReactFlow level
+      if (nodeId === focusedNodeId) {
+        if (node.data.variant === "concept" && node.data.branchId) {
+          setView({ level: "branch", branchId: node.data.branchId });
+          setExpandedNodeId(nodeId);
+        } else if (
+          node.data.variant === "subconcept" &&
+          node.data.branchId &&
+          node.data.parentId
+        ) {
+          setView({
+            level: "concept",
+            branchId: node.data.branchId,
+            conceptId: node.data.parentId,
+          });
+        }
+        setFocusedNodeId(null);
+        setHighlightedBranchId(null);
+        return;
+      }
+
+      // First click → focus + highlight branch
+      setFocusedNodeId(nodeId);
+      if (node.data.branchId) {
+        setHighlightedBranchId(node.data.branchId);
+      }
+    },
+    [focusedNodeId],
+  );
 
   const handleReactFlowNodeClick = useCallback(
     (nodeId: string) => {
-      if (view.level !== "branch") return;
-
-      const node = mockNodes.find((n) => n.id === nodeId);
-      if (node?.data.variant === "concept") {
-        setView({
-          level: "concept",
-          branchId: view.branchId,
-          conceptId: nodeId,
-        });
+      if (view.level === "branch") {
+        const node = mockNodes.find((n) => n.id === nodeId);
+        if (node?.data.variant === "concept") {
+          setExpandedNodeId((prev) => (prev === nodeId ? null : nodeId));
+        }
+      } else if (view.level === "concept") {
+        const node = mockNodes.find((n) => n.id === nodeId);
+        if (node?.data.variant === "subconcept") {
+          setExpandedNodeId((prev) => (prev === nodeId ? null : nodeId));
+        }
       }
     },
     [view],
@@ -103,6 +147,7 @@ export function GraphViewContainer() {
         {view.level === "global" && (
           <ForceGraphView
             highlightedBranchId={highlightedBranchId}
+            focusedNodeId={focusedNodeId}
             onNodeClick={handleForceNodeClick}
           />
         )}
@@ -110,6 +155,9 @@ export function GraphViewContainer() {
           <GraphCanvas
             nodes={filteredNodes}
             onNodeClick={handleReactFlowNodeClick}
+            expandedNodeId={expandedNodeId}
+            onOpenConcept={handleOpenNode}
+            onPaneClick={() => setExpandedNodeId(null)}
           />
         )}
       </div>

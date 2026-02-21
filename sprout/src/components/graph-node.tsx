@@ -1,7 +1,14 @@
 import { Handle, type Node, type NodeProps, Position } from "@xyflow/react";
 import { cva } from "class-variance-authority";
-import { BookOpen, CheckCircle2, Globe, Layers } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  Globe,
+  Layers,
+} from "lucide-react";
 import { memo } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type NodeVariant = "root" | "concept" | "subconcept";
@@ -14,13 +21,16 @@ export type GraphNodeData = {
   parentId: string | null;
   completed?: boolean;
   next?: boolean;
+  expanded?: boolean;
+  onOpenConcept?: (conceptId: string) => void;
+  summary?: string;
 };
 
 export type GraphNode = Node<GraphNodeData, "graph">;
 
 const nodeVariants = cva(
   [
-    "relative overflow-hidden flex items-center gap-4 rounded-2xl px-5 py-4",
+    "relative w-[340px] overflow-hidden rounded-2xl px-5 py-4",
     "bg-[rgba(17,34,20,0.55)] backdrop-blur-[16px]",
     "border border-[rgba(46,232,74,0.15)]",
     "shadow-[0_8px_32px_rgba(0,0,0,0.3)]",
@@ -52,8 +62,9 @@ const iconMap: Record<
   subconcept: { icon: Layers, className: "text-[#00FF41]" },
 };
 
-function GraphNodeComponent({ data, selected }: NodeProps<GraphNode>) {
-  const { label, variant, completed, next } = data;
+function GraphNodeComponent({ data, id, selected }: NodeProps<GraphNode>) {
+  const { label, variant, completed, next, expanded, onOpenConcept, summary } =
+    data;
   const { icon: Icon, className: iconClassName } = iconMap[variant];
 
   return (
@@ -71,16 +82,47 @@ function GraphNodeComponent({ data, selected }: NodeProps<GraphNode>) {
           !completed && !next && "opacity-60",
           selected &&
             "ring-2 ring-[#2EE84A] ring-offset-2 ring-offset-[#0A1A0F]",
+          expanded && "border-[rgba(46,232,74,0.4)] opacity-100",
         )}
       >
         <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.06] to-transparent" />
-        {completed ? (
-          <CheckCircle2 className="h-5 w-5 shrink-0 text-[#2EE84A]" />
-        ) : (
-          <Icon className={cn("h-5 w-5 shrink-0", iconClassName)} />
+        <div className="flex items-center gap-4">
+          {completed ? (
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-[#2EE84A]" />
+          ) : (
+            <Icon className={cn("h-5 w-5 shrink-0", iconClassName)} />
+          )}
+          <span className="min-w-0">{label}</span>
+        </div>
+
+        {/* Expansion — rolls out from within the node */}
+        {(variant === "concept" || variant === "subconcept") && (
+          <div
+            className={cn(
+              "overflow-hidden transition-opacity duration-400 ease-out",
+              expanded ? "max-h-[160px] opacity-100 mt-3" : "max-h-0 opacity-0",
+            )}
+          >
+            <div className="border-t border-[rgba(46,232,74,0.15)] pt-3">
+              <p className="mb-3 text-sm leading-relaxed text-white/70">
+                {summary}
+              </p>
+              <Button
+                size="sm"
+                className="w-full bg-[#2EE84A]/15 text-[#2EE84A] hover:bg-[#2EE84A]/25 border border-[#2EE84A]/20"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenConcept?.(id);
+                }}
+              >
+                {variant === "concept" ? "Open Subconcepts" : "Open"}
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         )}
-        <span className="min-w-0">{label}</span>
       </div>
+
       <Handle
         type="source"
         position={Position.Bottom}
