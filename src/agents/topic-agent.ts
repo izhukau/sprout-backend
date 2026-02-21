@@ -11,8 +11,9 @@ export interface TopicAgentPlan {
 export async function runTopicAgent(
   topicTitle: string,
   topicDesc?: string | null,
+  documentContents?: string | null,
 ): Promise<TopicAgentPlan> {
-  const concepts = await generateConcepts(topicTitle, topicDesc);
+  const concepts = await generateConcepts(topicTitle, topicDesc, documentContents);
 
   return {
     concepts,

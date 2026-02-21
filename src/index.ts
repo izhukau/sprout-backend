@@ -9,6 +9,7 @@ import assessmentsRouter from "./routes/assessments";
 import progressRouter from "./routes/progress";
 import chatRouter from "./routes/chat";
 import agentsRouter from "./routes/agents";
+import documentsRouter from "./routes/documents";
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -20,6 +21,7 @@ app.use("/api/users", usersRouter);
 app.use("/api/branches", branchesRouter);
 app.use("/api/nodes", nodesRouter);
 app.use("/api/nodes", nodeContentsRouter); // /api/nodes/:nodeId/contents & /generations
+app.use("/api/nodes", documentsRouter); // /api/nodes/:nodeId/documents
 app.use("/api/assessments", assessmentsRouter);
 app.use("/api/progress", progressRouter);
 app.use("/api/chat", chatRouter);

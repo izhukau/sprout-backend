@@ -14,13 +14,32 @@ export interface GeneratedConcept {
  *
  * @param topicTitle — root topic title, e.g. "Linear Algebra"
  * @param topicDesc  — optional description
+ * @param documentContents — optional extracted text from uploaded documents
  * @returns ordered array of 6-10 concepts forming a linear learning path
  */
 export async function generateConcepts(
   topicTitle: string,
   topicDesc?: string | null,
+  documentContents?: string | null,
 ): Promise<GeneratedConcept[]> {
   const descLine = topicDesc ? `Description: ${topicDesc}` : "";
+
+  const documentSection = documentContents
+    ? `
+The user has provided reference documents for this topic. You MUST use these documents as the PRIMARY source for structuring the learning path:
+
+1. FOLLOW the document's structure: Use the table of contents, chapter ordering, and section hierarchy as the basis for concept ordering.
+2. COVER the document's content: Each concept in your path should correspond to major sections or chapters from the document(s).
+3. PRESERVE the document's pedagogical sequence: If the document teaches topic A before topic B, your learning path must reflect that same ordering.
+4. USE the document's terminology: Match the vocabulary and concept names used in the documents.
+
+Do NOT invent concepts that are unrelated to the document content. If the document covers a narrower scope than the full topic, limit your path to what the document covers.
+
+--- REFERENCE DOCUMENTS ---
+${documentContents}
+--- END REFERENCE DOCUMENTS ---
+`
+    : "";
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -32,7 +51,7 @@ export async function generateConcepts(
 
 Topic: "${topicTitle}"
 ${descLine}
-
+${documentSection}
 The concepts should form a clear progression: a student learns concept 1, then concept 2 (which builds on 1), then concept 3 (which builds on 2), and so on.
 
 Return ONLY a JSON array, no other text. Each element must have:
