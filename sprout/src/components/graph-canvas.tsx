@@ -15,6 +15,8 @@ import { type GraphNode, graphNodeTypes } from "@/components/graph-node";
 import { buildEdgesFromNodes } from "@/lib/graph-utils";
 import { getLayoutedElements } from "@/lib/layout";
 
+const FIT_VIEW_OPTIONS = { padding: 0.15 };
+
 const edgeStyle = {
   stroke: "#2A6B30",
   strokeWidth: 1.5,
@@ -185,6 +187,7 @@ export default function GraphCanvas({
         nodeTypes={graphNodeTypes}
         colorMode="dark"
         fitView
+        fitViewOptions={FIT_VIEW_OPTIONS}
       >
         <Background color="rgba(46, 232, 74, 0.08)" gap={24} size={1.5} />
         <Controls

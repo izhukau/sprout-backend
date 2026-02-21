@@ -24,6 +24,7 @@ type GraphSidebarProps = {
   onOpenBranch: (branchId: string) => void;
   onSelectConcept: (conceptId: string) => void;
   onOpenConcept: (conceptId: string) => void;
+  onSelectSubconcept: (subconceptId: string) => void;
   onBack: () => void;
 };
 
@@ -36,6 +37,7 @@ export function GraphSidebar({
   onOpenBranch,
   onSelectConcept,
   onOpenConcept,
+  onSelectSubconcept,
   onBack,
 }: GraphSidebarProps) {
   return (
@@ -81,7 +83,11 @@ export function GraphSidebar({
             />
           )}
           {view.level === "concept" && (
-            <ConceptLevel nodes={nodes} conceptId={view.conceptId} />
+            <ConceptLevel
+              nodes={nodes}
+              conceptId={view.conceptId}
+              onSelectSubconcept={onSelectSubconcept}
+            />
           )}
         </div>
       </ScrollArea>
@@ -194,9 +200,11 @@ function BranchLevel({
 function ConceptLevel({
   nodes,
   conceptId,
+  onSelectSubconcept,
 }: {
   nodes: GraphNode[];
   conceptId: string;
+  onSelectSubconcept: (id: string) => void;
 }) {
   const subconcepts = nodes.filter(
     (n) => n.data.variant === "subconcept" && n.data.parentId === conceptId,
@@ -206,17 +214,22 @@ function ConceptLevel({
     <ul className="space-y-1">
       {subconcepts.map((sub) => (
         <li key={sub.id}>
-          <div
+          <button
+            type="button"
+            onClick={() => onSelectSubconcept(sub.id)}
             className={cn(
-              "flex items-center gap-2 rounded-xl px-3 py-3 text-sm",
-              sub.data.completed ? "text-white/80" : "text-white/50",
+              "flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm transition-all duration-200",
+              "border border-transparent hover:bg-[rgba(46,232,74,0.04)]",
+              sub.data.completed
+                ? "text-white/80 hover:text-white"
+                : "text-white/50 hover:text-white/70",
             )}
           >
             {sub.data.completed && (
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#2EE84A]" />
             )}
             <span className="min-w-0 truncate">{sub.data.label}</span>
-          </div>
+          </button>
         </li>
       ))}
     </ul>

@@ -139,6 +139,7 @@ export function GraphViewContainer() {
         onOpenBranch={handleOpenBranch}
         onSelectConcept={handleSelectConcept}
         onOpenConcept={handleOpenConcept}
+        onSelectSubconcept={handleOpenNode}
         onBack={handleBack}
       />
 
@@ -153,6 +154,11 @@ export function GraphViewContainer() {
         )}
         {(view.level === "branch" || view.level === "concept") && (
           <GraphCanvas
+            key={
+              view.level === "branch"
+                ? `branch-${view.branchId}`
+                : `concept-${view.conceptId}`
+            }
             nodes={filteredNodes}
             onNodeClick={handleReactFlowNodeClick}
             expandedNodeId={expandedNodeId}
