@@ -8,6 +8,7 @@ import {
   assessments,
   questions,
   answers,
+  topicDocuments,
 } from "../db/schema";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -142,6 +143,31 @@ function buildDiagnosticSummary(
     gaps,
     items,
   };
+}
+
+const MAX_DOCUMENT_CHARS = 80_000;
+
+function prepareDocumentContext(
+  docs: Array<{ originalFilename: string; extractedText: string | null }>,
+): string | null {
+  const parts: string[] = [];
+
+  for (const doc of docs) {
+    if (!doc.extractedText) continue;
+    const header = `--- Document: ${doc.originalFilename} ---`;
+    parts.push(header + "\n" + doc.extractedText);
+  }
+
+  if (!parts.length) return null;
+
+  let combined = parts.join("\n\n");
+  if (combined.length > MAX_DOCUMENT_CHARS) {
+    combined =
+      combined.slice(0, MAX_DOCUMENT_CHARS) +
+      "\n\n[... document content truncated at 80,000 characters ...]";
+  }
+
+  return combined;
 }
 
 function titleKey(title: string): string {
@@ -361,7 +387,20 @@ async function ensureTopicConceptGraph(
     };
   }
 
-  const plan = await runTopicAgent(topicNode.title, topicNode.desc);
+  // Fetch uploaded document content for this topic
+  const topicDocs = await db
+    .select()
+    .from(topicDocuments)
+    .where(
+      and(
+        eq(topicDocuments.nodeId, topicNode.id),
+        eq(topicDocuments.extractionStatus, "completed"),
+      ),
+    );
+
+  const documentContents = prepareDocumentContext(topicDocs);
+
+  const plan = await runTopicAgent(topicNode.title, topicNode.desc, documentContents);
   const createdConcepts: NodeRow[] = [];
 
   for (const concept of plan.concepts) {

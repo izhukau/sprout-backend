@@ -71,6 +71,32 @@ export const nodes = sqliteTable(
   ]
 );
 
+// Documents uploaded for topic nodes (stored in S3)
+export const topicDocuments = sqliteTable(
+  "topic_documents",
+  {
+    id: text("id").primaryKey(),
+    nodeId: text("node_id")
+      .notNull()
+      .references(() => nodes.id),
+    originalFilename: text("original_filename").notNull(),
+    s3Key: text("s3_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull(),
+    extractedText: text("extracted_text"),
+    extractionStatus: text("extraction_status", {
+      enum: ["pending", "completed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    extractionError: text("extraction_error"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [index("topic_documents_node_id_idx").on(table.nodeId)]
+);
+
 // Dependency edges between nodes (forms a DAG / forest)
 // e.g. subconcept B depends on subconcept A being learned first
 export const nodeEdges = sqliteTable(
