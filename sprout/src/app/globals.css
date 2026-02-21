@@ -83,37 +83,81 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: #0a1a0f;
+  --foreground: #ffffff;
+  --card: rgba(17, 34, 20, 0.6);
+  --card-foreground: #ffffff;
+  --popover: #0d2010;
+  --popover-foreground: #ffffff;
+  --primary: #2ee84a;
+  --primary-foreground: #0a1a0f;
+  --secondary: #1a4d20;
+  --secondary-foreground: #ffffff;
+  --muted: #112214;
+  --muted-foreground: #b0b8b4;
+  --accent: #1a4d20;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --border: #1e3d24;
+  --input: #1e3d24;
+  --ring: #3dbf5a;
+  --chart-1: #2ee84a;
+  --chart-2: #3dbf5a;
+  --chart-3: #2d7a35;
+  --chart-4: #2a6b30;
+  --chart-5: #1a4d20;
+  --sidebar: #0d2010;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #2ee84a;
+  --sidebar-primary-foreground: #0a1a0f;
+  --sidebar-accent: #1a4d20;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1e3d24;
+  --sidebar-ring: #3dbf5a;
+}
+
+/* ReactFlow eco-tech dark overrides */
+.dark .react-flow {
+  --xy-background-color: #0a1a0f;
+  --xy-background-pattern-dots-color: rgba(46, 232, 74, 0.12);
+
+  --xy-edge-stroke: #2a6b30;
+  --xy-edge-stroke-width: 2;
+  --xy-edge-stroke-selected: #2ee84a;
+
+  --xy-minimap-background-color: #0d2010;
+  --xy-minimap-mask-background-color: rgba(10, 26, 15, 0.7);
+  --xy-minimap-node-background-color: #1a4d20;
+  --xy-minimap-node-stroke-color: #2ee84a;
+
+  --xy-node-color: #ffffff;
+  --xy-node-boxshadow-hover: 0 0 20px rgba(46, 232, 74, 0.25);
+  --xy-node-boxshadow-selected: 0 0 0 2px #2ee84a;
+
+  --xy-handle-background-color: #3dbf5a;
+  --xy-handle-border-color: #0a1a0f;
+
+  --xy-controls-button-background-color: rgba(17, 34, 20, 0.8);
+  --xy-controls-button-background-color-hover: rgba(26, 77, 32, 0.9);
+  --xy-controls-button-color: #b0b8b4;
+  --xy-controls-button-color-hover: #ffffff;
+  --xy-controls-button-border-color: #1e3d24;
+
+  --xy-attribution-background-color: rgba(10, 26, 15, 0.6);
+}
+
+@keyframes ambient-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 15px rgba(46, 232, 74, 0.2),
+      0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 25px rgba(46, 232, 74, 0.35),
+      0 8px 32px rgba(0, 0, 0, 0.3);
+  }
 }
 
 @layer base {
