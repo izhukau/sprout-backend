@@ -25,8 +25,9 @@ export async function runSubconceptBootstrapAgent(options: {
   topicTitle: string;
   documentContext: string | null;
   sse: SSEWriter;
+  small?: boolean;
 }): Promise<void> {
-  const { userId, conceptNode, topicTitle, documentContext, sse } = options;
+  const { userId, conceptNode, topicTitle, documentContext, sse, small } = options;
 
   // Check if subconcepts already exist
   const existingSubconcepts = await db
@@ -229,15 +230,15 @@ ${docSection}
 
 YOUR TASKS:
 
-1. CREATE DIAGNOSTIC QUESTIONS (5-10 questions)
+1. CREATE DIAGNOSTIC QUESTIONS (${small ? "2-3" : "5-10"} questions)
    Use save_diagnostic_question for each question. These assess what the student already knows.
    Mix formats and difficulties:
-   - 2-3 EASY (difficulty 1-2): basic definitions and recognition
-   - 3-4 MEDIUM (difficulty 3): application and understanding
-   - 1-3 HARD (difficulty 4-5): deeper analysis and connections
+   - ${small ? "1" : "2-3"} EASY (difficulty 1-2): basic definitions and recognition
+   - ${small ? "1" : "3-4"} MEDIUM (difficulty 3): application and understanding
+   - ${small ? "1" : "1-3"} HARD (difficulty 4-5): deeper analysis and connections
    Mix "mcq" (4 options, one correct) and "open_ended" formats.
 
-2. CREATE SUBCONCEPTS (8-12 subconcepts)
+2. CREATE SUBCONCEPTS (${small ? "2-3" : "8-12"} subconcepts)
    Use save_subconcept for each. These are the detailed learning units within this concept.
    Think about what a student needs to learn and in what order.
 

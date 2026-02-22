@@ -25,8 +25,9 @@ export async function runTopicAgent(options: {
   userId: string;
   topicNode: NodeRow;
   sse: SSEWriter;
+  small?: boolean;
 }): Promise<{ concepts: SavedConcept[]; rationale: string }> {
-  const { userId, topicNode, sse } = options;
+  const { userId, topicNode, sse, small } = options;
 
   // Check for existing concepts first
   const existingConcepts = await db
@@ -263,7 +264,7 @@ ${documentContents}
 
   const systemPrompt = `You are a curriculum design agent for the adaptive learning platform Sprout. You autonomously design learning paths.
 
-YOUR TASK: Create an optimal learning path of 6-10 concepts for the given topic, ordered from foundational to advanced.
+YOUR TASK: Create an optimal learning path of ${small ? "1-2" : "6-10"} concepts for the given topic, ordered from foundational to advanced.
 
 PROCESS:
 1. Think about what concepts a student needs to learn for this topic and in what order.
