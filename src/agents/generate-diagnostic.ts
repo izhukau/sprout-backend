@@ -12,8 +12,8 @@ export interface GeneratedQuestion {
 }
 
 /**
- * Generates 5-10 diagnostic questions to assess a student's existing knowledge
- * of a concept before building the subconcept graph.
+ * Generates exactly 10 diagnostic questions to assess a student's existing
+ * knowledge of a concept before building the subconcept graph.
  */
 export async function generateDiagnosticQuestions(
   conceptTitle: string,
@@ -32,22 +32,22 @@ export async function generateDiagnosticQuestions(
     messages: [
       {
         role: "user",
-        content: `You are an expert educator. Generate 5-10 diagnostic questions to assess a student's existing knowledge of the following concept.
+        content: `You are an expert educator. Generate exactly 10 diagnostic questions to assess a student's existing knowledge of the following concept.
 
 Concept: "${conceptTitle}"
 ${descLine}
 ${contextLine}
 
-The questions should cover different depth levels:
-- 2-3 EASY questions (difficulty 1-2): basic definitions and recognition
-- 3-4 MEDIUM questions (difficulty 3): application and understanding
-- 1-3 HARD questions (difficulty 4-5): deeper analysis and connections
+The questions should cover different depth levels and add up to exactly 10:
+- 3 EASY questions (difficulty 1-2): basic definitions and recognition
+- 4 MEDIUM questions (difficulty 3): application and understanding
+- 3 HARD questions (difficulty 4-5): deeper analysis and connections
 
 Mix question formats:
 - "mcq": multiple choice with exactly 4 options (one correct)
 - "open_ended": short answer (1-2 sentences expected)
 
-Return ONLY a JSON array, no other text. Each element must have:
+Return ONLY a JSON array of length 10, no other text. Each element must have:
 - "prompt": the question text
 - "format": "mcq" or "open_ended"
 - "options": array of 4 strings (ONLY for mcq, omit for open_ended)

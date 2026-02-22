@@ -15,16 +15,13 @@ import { runTopicAgent } from "../agents/topic-agent";
 import { runSubconceptBootstrapAgent } from "../agents/subconcept-bootstrap-agent";
 import { runConceptRefinementAgent } from "../agents/concept-agent";
 import { generateDiagnosticQuestions } from "../agents/generate-diagnostic";
-import {
-  type SubconceptGenerationDiagnostic,
-} from "../agents/generate-subconcepts";
+import { type SubconceptGenerationDiagnostic } from "../agents/generate-subconcepts";
 import {
   reviewLearningPath,
   type ConceptReviewAddition,
   type SubconceptReviewAddition,
 } from "../agents/review-learning-path";
 import { initSSE } from "../utils/sse";
-import pLimit from "p-limit";
 
 const router = Router();
 
@@ -596,35 +593,13 @@ router.post("/topics/:topicNodeId/run", async (req, res, next) => {
     sse.registerAgent(); // Register the topic agent
 
     try {
-      // Phase 1: Run Topic Agent — generates concepts with SSE streaming
-      const topicResult = await runTopicAgent({ userId, topicNode, sse, small: !!small });
-
-      // Phase 2: Launch Subconcept Bootstrap Agents in parallel (capped at 3)
-      const limit = pLimit(3);
-      const bootstrapPromises = topicResult.concepts.map((savedConcept) => {
-        sse.registerAgent(); // Register each bootstrap agent
-        return limit(async () => {
-          try {
-            await runSubconceptBootstrapAgent({
-              userId,
-              conceptNode: savedConcept.node,
-              topicTitle: topicNode.title,
-              documentContext: savedConcept.documentContext,
-              sse,
-              small: !!small,
-            });
-          } catch (err: any) {
-            sse.send("agent_error", {
-              agent: `subconcept_bootstrap:${savedConcept.node.title}`,
-              message: err.message ?? "Bootstrap agent failed",
-            });
-          } finally {
-            sse.resolveAgent();
-          }
-        });
+      // Run Topic Agent — generates concepts with SSE streaming
+      const topicResult = await runTopicAgent({
+        userId,
+        topicNode,
+        sse,
+        small: !!small,
       });
-
-      await Promise.all(bootstrapPromises);
 
       sse.send("agent_done", {
         agent: "topic",
@@ -687,7 +662,7 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
       )
       .orderBy(desc(assessments.createdAt));
 
-    let assessment: typeof existingAssessments[0];
+    let assessment: (typeof existingAssessments)[0];
     let assessmentQuestions: QuestionRow[];
 
     if (existingAssessments.length) {
@@ -753,8 +728,11 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
       return !!extractStudentAnswer(answer);
     }).length;
 
+    const requiredAnswers =
+      Math.min(10, assessmentQuestions.length || 10) || 10;
+
     // Phase 1: Return questions if student hasn't answered yet
-    if (answeredCount < 1) {
+    if (answeredCount < requiredAnswers) {
       return res.json({
         agent: "concept",
         status: "awaiting_answers",
@@ -762,12 +740,46 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
         assessment,
         questions: assessmentQuestions,
         answeredCount,
-        requiredAnswers: 1,
+        requiredAnswers,
       });
     }
 
-    // Phase 2: Run the refinement agent with SSE streaming
+    // Phase 2: If no subconcepts yet, bootstrap them (questions were already answered)
+    const existingSubconcepts = await db
+      .select()
+      .from(nodes)
+      .where(
+        and(eq(nodes.parentId, conceptNode.id), eq(nodes.type, "subconcept")),
+      );
+
     const sse = initSSE(res);
+
+    if (!existingSubconcepts.length) {
+      sse.registerAgent();
+      try {
+        await runSubconceptBootstrapAgent({
+          userId,
+          conceptNode,
+          topicTitle: parentTopicTitle ?? "Topic",
+          documentContext: null,
+          sse,
+          small: false,
+          generateQuestions: false,
+        });
+        sse.send("agent_done", {
+          agent: `subconcept_bootstrap:${conceptNode.title}`,
+        });
+      } catch (err: any) {
+        sse.send("agent_error", {
+          agent: `subconcept_bootstrap:${conceptNode.title}`,
+          message: err.message ?? "Subconcept bootstrap agent failed",
+        });
+      } finally {
+        sse.resolveAgent();
+      }
+    }
+
+    // Phase 3: Run the refinement agent with SSE streaming
     sse.registerAgent();
 
     try {

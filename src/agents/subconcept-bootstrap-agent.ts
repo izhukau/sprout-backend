@@ -26,14 +26,25 @@ export async function runSubconceptBootstrapAgent(options: {
   documentContext: string | null;
   sse: SSEWriter;
   small?: boolean;
+  generateQuestions?: boolean;
 }): Promise<void> {
-  const { userId, conceptNode, topicTitle, documentContext, sse, small } = options;
+  const {
+    userId,
+    conceptNode,
+    topicTitle,
+    documentContext,
+    sse,
+    small,
+    generateQuestions = true,
+  } = options;
 
   // Check if subconcepts already exist
   const existingSubconcepts = await db
     .select()
     .from(nodes)
-    .where(and(eq(nodes.parentId, conceptNode.id), eq(nodes.type, "subconcept")));
+    .where(
+      and(eq(nodes.parentId, conceptNode.id), eq(nodes.type, "subconcept")),
+    );
 
   if (existingSubconcepts.length) {
     for (const sc of existingSubconcepts) {
@@ -47,8 +58,10 @@ export async function runSubconceptBootstrapAgent(options: {
   const titleToId: Record<string, string> = {};
   let assessmentId: string | null = null;
 
-  const tools: AgentTool[] = [
-    {
+  const tools: AgentTool[] = [];
+
+  if (generateQuestions) {
+    tools.push({
       name: "save_diagnostic_question",
       description:
         "Save a diagnostic question for this concept. Questions will be shown to the student before they start learning to assess their existing knowledge.",
@@ -59,20 +72,24 @@ export async function runSubconceptBootstrapAgent(options: {
           format: {
             type: "string",
             enum: ["mcq", "open_ended"],
-            description: "Question format: 'mcq' for multiple choice (must provide 4 options), 'open_ended' for short answer",
+            description:
+              "Question format: 'mcq' for multiple choice (must provide 4 options), 'open_ended' for short answer",
           },
           options: {
             type: "array",
             items: { type: "string" },
-            description: "Exactly 4 answer options (only for mcq format, omit for open_ended)",
+            description:
+              "Exactly 4 answer options (only for mcq format, omit for open_ended)",
           },
           correct_answer: {
             type: "string",
-            description: "The correct answer. For mcq: the exact text of the correct option. For open_ended: the expected answer.",
+            description:
+              "The correct answer. For mcq: the exact text of the correct option. For open_ended: the expected answer.",
           },
           difficulty: {
             type: "integer",
-            description: "Difficulty level 1-5 (1=easy basics, 3=application, 5=deep analysis)",
+            description:
+              "Difficulty level 1-5 (1=easy basics, 3=application, 5=deep analysis)",
           },
         },
         required: ["prompt", "format", "correct_answer", "difficulty"],
@@ -122,9 +139,16 @@ export async function runSubconceptBootstrapAgent(options: {
           difficulty: input.difficulty,
         });
 
-        return JSON.stringify({ saved: true, format: input.format, difficulty: input.difficulty });
+        return JSON.stringify({
+          saved: true,
+          format: input.format,
+          difficulty: input.difficulty,
+        });
       },
-    },
+    });
+  }
+
+  tools.push(
     {
       name: "save_subconcept",
       description:
@@ -160,7 +184,11 @@ export async function runSubconceptBootstrapAgent(options: {
 
         sse.send("node_created", { node });
 
-        return JSON.stringify({ saved: true, nodeId: node.id, title: node.title });
+        return JSON.stringify({
+          saved: true,
+          nodeId: node.id,
+          title: node.title,
+        });
       },
     },
     {
@@ -176,7 +204,8 @@ export async function runSubconceptBootstrapAgent(options: {
           },
           target_title: {
             type: "string",
-            description: "Title of the dependent subconcept (learns after source)",
+            description:
+              "Title of the dependent subconcept (learns after source)",
           },
         },
         required: ["source_title", "target_title"],
@@ -216,21 +245,14 @@ export async function runSubconceptBootstrapAgent(options: {
         return JSON.stringify({ saved: true });
       },
     },
-  ];
+  );
 
   const docSection = documentContext
     ? `\nUse this reference material to ground your work in the actual course content:\n--- REFERENCE MATERIAL ---\n${documentContext}\n--- END REFERENCE MATERIAL ---`
     : "";
 
-  const systemPrompt = `You are a learning path builder for the adaptive learning platform Sprout. You autonomously set up the learning structure for a single concept.
-
-CONCEPT: "${conceptNode.title}"${conceptNode.desc ? ` — ${conceptNode.desc}` : ""}
-TOPIC: "${topicTitle}"
-${docSection}
-
-YOUR TASKS:
-
-1. CREATE DIAGNOSTIC QUESTIONS (${small ? "2-3" : "5-10"} questions)
+  const taskSection = generateQuestions
+    ? `1. CREATE DIAGNOSTIC QUESTIONS (${small ? "2-3" : "5-10"} questions)
    Use save_diagnostic_question for each question. These assess what the student already knows.
    Mix formats and difficulties:
    - ${small ? "1" : "2-3"} EASY (difficulty 1-2): basic definitions and recognition
@@ -242,7 +264,22 @@ YOUR TASKS:
    Use save_subconcept for each. These are the detailed learning units within this concept.
    Think about what a student needs to learn and in what order.
 
-3. CREATE DEPENDENCY EDGES
+3. CREATE DEPENDENCY EDGES`
+    : `1. CREATE SUBCONCEPTS (${small ? "2-3" : "8-12"} subconcepts)
+   Use save_subconcept for each. These are the detailed learning units within this concept.
+   Think about what a student needs to learn and in what order.
+
+2. CREATE DEPENDENCY EDGES`;
+
+  const systemPrompt = `You are a learning path builder for the adaptive learning platform Sprout. You autonomously set up the learning structure for a single concept.
+
+CONCEPT: "${conceptNode.title}"${conceptNode.desc ? ` — ${conceptNode.desc}` : ""}
+TOPIC: "${topicTitle}"
+${docSection}
+
+YOUR TASKS:
+
+${taskSection}
    Use save_subconcept_edge for each dependency. Subconcepts can depend on each other,
    forming a directed acyclic graph (DAG) — not just a linear sequence.
    Some subconcepts are independent entry points (no dependencies).
@@ -252,7 +289,9 @@ Save all questions first, then all subconcepts, then all edges.`;
 
   const initialMessage = `Build the learning structure for concept: "${conceptNode.title}" (part of topic: "${topicTitle}")`;
 
-  sse.send("agent_start", { agent: `subconcept_bootstrap:${conceptNode.title}` });
+  sse.send("agent_start", {
+    agent: `subconcept_bootstrap:${conceptNode.title}`,
+  });
 
   const result = await runAgentLoop({
     model: small ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6",
@@ -262,7 +301,10 @@ Save all questions first, then all subconcepts, then all edges.`;
     maxIterations: small ? 10 : 15,
     callbacks: {
       onThinking(text) {
-        sse.send("agent_reasoning", { agent: `subconcept_bootstrap:${conceptNode.title}`, text });
+        sse.send("agent_reasoning", {
+          agent: `subconcept_bootstrap:${conceptNode.title}`,
+          text,
+        });
       },
       onToolCall(name, input) {
         sse.send("tool_call", {
@@ -275,7 +317,10 @@ Save all questions first, then all subconcepts, then all edges.`;
         sse.send("tool_result", {
           tool: name,
           agent: `subconcept_bootstrap:${conceptNode.title}`,
-          summary: resultStr.length > 200 ? resultStr.slice(0, 200) + "..." : resultStr,
+          summary:
+            resultStr.length > 200
+              ? resultStr.slice(0, 200) + "..."
+              : resultStr,
         });
       },
     },
