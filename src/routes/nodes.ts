@@ -155,13 +155,15 @@ router.get("/", async (req, res, next) => {
       string,
       string
     >;
-    let query = db.select().from(nodes).$dynamic();
+    const conditions = [];
+    if (userId) conditions.push(eq(nodes.userId, userId));
+    if (type) conditions.push(eq(nodes.type, type as any));
+    if (branchId) conditions.push(eq(nodes.branchId, branchId));
+    if (parentId) conditions.push(eq(nodes.parentId, parentId));
 
-    if (userId) query = query.where(eq(nodes.userId, userId));
-    if (type) query = query.where(eq(nodes.type, type as any));
-    if (branchId) query = query.where(eq(nodes.branchId, branchId));
-    if (parentId) query = query.where(eq(nodes.parentId, parentId));
-
+    const query = conditions.length
+      ? db.select().from(nodes).where(and(...conditions))
+      : db.select().from(nodes);
     const result = await query;
     res.json(result);
   } catch (e) {
@@ -206,17 +208,15 @@ router.get("/:id/dependency-edges", async (req, res, next) => {
       | "subconcept"
       | undefined;
 
-    let childQuery = db
-      .select()
-      .from(nodes)
-      .where(eq(nodes.parentId, req.params.id))
-      .$dynamic();
-
+    const childConditions = [eq(nodes.parentId, req.params.id)];
     if (childType) {
-      childQuery = childQuery.where(eq(nodes.type, childType));
+      childConditions.push(eq(nodes.type, childType));
     }
 
-    const children = await childQuery;
+    const children = await db
+      .select()
+      .from(nodes)
+      .where(and(...childConditions));
     const childIds = children.map((child) => child.id);
     if (!childIds.length) return res.json([]);
 

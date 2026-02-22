@@ -13,9 +13,12 @@ const router = Router();
 router.get("/sessions", async (req, res, next) => {
   try {
     const { userId, nodeId } = req.query as Record<string, string>;
-    let query = db.select().from(chatSessions).$dynamic();
-    if (userId) query = query.where(eq(chatSessions.userId, userId));
-    if (nodeId) query = query.where(eq(chatSessions.nodeId, nodeId));
+    const conditions = [];
+    if (userId) conditions.push(eq(chatSessions.userId, userId));
+    if (nodeId) conditions.push(eq(chatSessions.nodeId, nodeId));
+    const query = conditions.length
+      ? db.select().from(chatSessions).where(and(...conditions))
+      : db.select().from(chatSessions);
     const result = await query;
     res.json(result);
   } catch (e) {
@@ -153,9 +156,12 @@ router.post("/hints", async (req, res, next) => {
 router.get("/hints", async (req, res, next) => {
   try {
     const { userId, nodeId } = req.query as Record<string, string>;
-    let query = db.select().from(hintEvents).$dynamic();
-    if (userId) query = query.where(eq(hintEvents.userId, userId));
-    if (nodeId) query = query.where(eq(hintEvents.nodeId, nodeId));
+    const conditions = [];
+    if (userId) conditions.push(eq(hintEvents.userId, userId));
+    if (nodeId) conditions.push(eq(hintEvents.nodeId, nodeId));
+    const query = conditions.length
+      ? db.select().from(hintEvents).where(and(...conditions))
+      : db.select().from(hintEvents);
     const result = await query;
     res.json(result);
   } catch (e) {
@@ -237,6 +243,12 @@ router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
       node.desc,
       parentConceptTitle,
       messages,
+      {
+        userId,
+        subconceptNodeId: node.id,
+        conceptNodeId: node.parentId ?? node.id,
+        sessionId: req.params.sessionId,
+      },
     );
 
     // 6. Save AI response to DB
@@ -261,6 +273,8 @@ router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
     res.json({
       message: response.content,
       isComplete: response.isComplete,
+      toolsUsed: response.toolsUsed,
+      reasoning: response.reasoning,
     });
   } catch (e) {
     next(e);
