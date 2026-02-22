@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../db";
-import { nodes, nodeEdges, nodeGenerations, topicDocuments } from "../db/schema";
+import {
+  nodes,
+  nodeEdges,
+  nodeGenerations,
+  topicDocuments,
+} from "../db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { runAgentLoop, type AgentTool } from "./agent-loop";
@@ -50,13 +55,19 @@ export async function runTopicAgent(options: {
     for (const edge of existingEdges) {
       if (conceptIdSet.has(edge.targetNodeId)) {
         sse.send("edge_created", {
-          edge: { sourceNodeId: edge.sourceNodeId, targetNodeId: edge.targetNodeId },
+          edge: {
+            sourceNodeId: edge.sourceNodeId,
+            targetNodeId: edge.targetNodeId,
+          },
         });
       }
     }
 
     return {
-      concepts: existingConcepts.map((n) => ({ node: n, documentContext: null })),
+      concepts: existingConcepts.map((n) => ({
+        node: n,
+        documentContext: null,
+      })),
       rationale: "Existing concepts loaded.",
     };
   }
@@ -102,9 +113,13 @@ export async function runTopicAgent(options: {
         },
         required: ["concepts"],
       },
-      async execute(input: { concepts: Array<{ title: string; desc: string }> }) {
+      async execute(input: {
+        concepts: Array<{ title: string; desc: string }>;
+      }) {
         if (!documentContents) {
-          return JSON.stringify({ message: "No documents uploaded, skipping extraction." });
+          return JSON.stringify({
+            message: "No documents uploaded, skipping extraction.",
+          });
         }
 
         const conceptList = input.concepts
@@ -140,12 +155,15 @@ Return ONLY valid JSON, no other text.`,
         }
 
         try {
-          conceptContextMap = parseJsonResponse<Record<string, string>>(textBlock.text);
+          conceptContextMap = parseJsonResponse<Record<string, string>>(
+            textBlock.text,
+          );
         } catch {
           conceptContextMap = {};
         }
 
-        const extractedCount = Object.values(conceptContextMap).filter(Boolean).length;
+        const extractedCount =
+          Object.values(conceptContextMap).filter(Boolean).length;
         return JSON.stringify({
           extractedCount,
           totalConcepts: input.concepts.length,
@@ -160,7 +178,10 @@ Return ONLY valid JSON, no other text.`,
         type: "object" as const,
         properties: {
           title: { type: "string", description: "Concept title" },
-          desc: { type: "string", description: "One-sentence description of what this concept covers" },
+          desc: {
+            type: "string",
+            description: "One-sentence description of what this concept covers",
+          },
         },
         required: ["title", "desc"],
       },
@@ -202,14 +223,24 @@ Return ONLY valid JSON, no other text.`,
       input_schema: {
         type: "object" as const,
         properties: {
-          source_title: { type: "string", description: "Title of the prerequisite concept" },
-          target_title: { type: "string", description: "Title of the dependent concept" },
+          source_title: {
+            type: "string",
+            description: "Title of the prerequisite concept",
+          },
+          target_title: {
+            type: "string",
+            description: "Title of the dependent concept",
+          },
         },
         required: ["source_title", "target_title"],
       },
       async execute(input: { source_title: string; target_title: string }) {
-        const sourceNode = savedConcepts.find((c) => c.node.title === input.source_title);
-        const targetNode = savedConcepts.find((c) => c.node.title === input.target_title);
+        const sourceNode = savedConcepts.find(
+          (c) => c.node.title === input.source_title,
+        );
+        const targetNode = savedConcepts.find(
+          (c) => c.node.title === input.target_title,
+        );
 
         if (!sourceNode || !targetNode) {
           return JSON.stringify({
@@ -302,7 +333,10 @@ The concepts you create will be used by downstream agents to generate subconcept
       onToolResult(name, resultStr) {
         sse.send("tool_result", {
           tool: name,
-          summary: resultStr.length > 200 ? resultStr.slice(0, 200) + "..." : resultStr,
+          summary:
+            resultStr.length > 200
+              ? resultStr.slice(0, 200) + "..."
+              : resultStr,
         });
       },
     },
@@ -324,7 +358,8 @@ The concepts you create will be used by downstream agents to generate subconcept
 
   return {
     concepts: savedConcepts,
-    rationale: result.finalText || "Learning path generated via agentic topic agent.",
+    rationale:
+      result.finalText || "Learning path generated via agentic topic agent.",
   };
 }
 

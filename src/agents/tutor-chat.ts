@@ -20,6 +20,7 @@ export interface ChatMessage {
 export interface TutorResponse {
   content: string;
   isComplete: boolean;
+  chunkTransition: "advance" | "same" | null;
   toolsUsed: string[];
   reasoning: string[];
 }
@@ -503,7 +504,8 @@ BEFORE TEACHING:
 - If prerequisites NOT mastered, briefly review key concepts first.
 
 YOUR TEACHING METHOD:
-1. Break this subconcept into small, digestible chunks (3-6 chunks total).
+1. Break this subconcept into small, digestible chunks (aim for 4-8, NEVER exceed 10 chunks total).
+   Remediation steps for incorrect answers do NOT count toward the chunk total — loop on the same chunk as many times as needed until the student answers correctly.
 2. For each chunk:
    - Explain the chunk clearly and concisely (2-4 sentences).
    - Use your tools when appropriate — a good example or diagram can be more effective than explanation alone.
@@ -549,6 +551,11 @@ COMPLETION:
 - When all chunks have been covered and the student has answered the final question correctly, write a brief summary of everything learned and end your message with the exact marker: [COMPLETE]
 - Only use [COMPLETE] when truly done with all chunks.
 
+CHUNK TRANSITION MARKERS (for [ANSWER] turns only):
+- If you are moving to the NEXT chunk, append exactly: [ADVANCE_CHUNK]
+- If the student should stay on the SAME chunk (incorrect/confused/retry), append exactly: [SAME_CHUNK]
+- Do not include these markers for clarification turns.
+
 STYLE:
 - Be encouraging but not overly enthusiastic.
 - Use simple language. Give concrete examples where helpful.
@@ -583,12 +590,25 @@ STYLE:
     },
   });
 
-  const content = result.finalText;
-  const isComplete = content.includes("[COMPLETE]");
+  const rawContent = result.finalText;
+  const isComplete = rawContent.includes("[COMPLETE]");
+  const hasAdvanceMarker = rawContent.includes("[ADVANCE_CHUNK]");
+  const hasSameMarker = rawContent.includes("[SAME_CHUNK]");
+  const chunkTransition: "advance" | "same" | null = hasAdvanceMarker
+    ? "advance"
+    : hasSameMarker
+      ? "same"
+      : null;
+  const cleanedContent = rawContent
+    .replace("[COMPLETE]", "")
+    .replace("[ADVANCE_CHUNK]", "")
+    .replace("[SAME_CHUNK]", "")
+    .trim();
 
   return {
-    content: content.replace("[COMPLETE]", "").trim(),
+    content: cleanedContent,
     isComplete,
+    chunkTransition,
     toolsUsed: result.toolCalls.map((tc) => tc.name),
     reasoning: reasoningSteps,
   };
