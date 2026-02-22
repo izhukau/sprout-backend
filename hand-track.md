@@ -18,7 +18,7 @@ conda create -n aircanvas python=3.10 -y
 conda activate aircanvas
 ```
 
-> Use Python 3.10. mediapipe 0.10.14 does NOT support Python 3.12+.
+> Use Python 3.10.
 
 ---
 
@@ -59,5 +59,33 @@ WebSocket Server started on ws://localhost:8765
 - **Port**: `8765` — avoids conflict with the Node.js backend on `8000`
 - **MediaPipe init must be at module level** — `mp.solutions.hands` fails if accessed inside an async handler. It is initialized at the top of `backend.py`, outside any function.
 - **Webcam**: `cv2.VideoCapture(0)` — uses the default webcam (index 0). Change to `1` if you have multiple cameras.
-- The server streams index finger tip coordinates `{ x, y, z }` as JSON at ~100fps to any connected WebSocket client.
 - The frontend connects to this server from the hand tracking toggle button (bottom-right of the graph view).
+
+---
+
+## Protocol (per frame, capped at 60 fps)
+
+```json
+{ "hands": [ { "handedness": "Left"|"Right", "x","y","z","pinch", "palm_x","palm_y","palm_z", "is_open_palm","palm_hold_duration","is_grabbing" } ] }
+```
+
+Both hands are sent when detected. The frontend uses all of them — no single "primary" hand is locked.
+
+---
+
+## Gesture Logic
+
+| Gesture | Effect |
+|---|---|
+| Hand present, not open palm | Camera orbits (index-tip drives azimuth/elevation) |
+| Open palm held 3 s | Enters grab mode (`is_grabbing = true`) |
+| Grabbing + palm over a node | Drags that node (and its subconcepts if it's a concept node) |
+| Palm closed / hand leaves frame | Grab released, node stays where dropped |
+
+**Open-palm detection** (`is_open_palm`): all four fingers (index → pinky) must each satisfy at least one of:
+1. Wrist-to-tip distance > wrist-to-PIP × 1.08
+2. Tip y-coordinate < PIP y-coordinate (tip above PIP in image space)
+
+**Grab tracking**: locked to the hand's `handedness` string, not its frame-order index, so detection-order jitter never drops an active grab.
+
+**Camera hand**: whichever detected hand is *not* in open-palm state. If all hands are open-palm, camera freezes.
