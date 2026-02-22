@@ -15,9 +15,7 @@ import { runTopicAgent } from "../agents/topic-agent";
 import { runSubconceptBootstrapAgent } from "../agents/subconcept-bootstrap-agent";
 import { runConceptRefinementAgent } from "../agents/concept-agent";
 import { generateDiagnosticQuestions } from "../agents/generate-diagnostic";
-import {
-  type SubconceptGenerationDiagnostic,
-} from "../agents/generate-subconcepts";
+import { type SubconceptGenerationDiagnostic } from "../agents/generate-subconcepts";
 import {
   reviewLearningPath,
   type ConceptReviewAddition,
@@ -31,6 +29,15 @@ const router = Router();
 type NodeRow = typeof nodes.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 type AnswerRow = typeof answers.$inferSelect;
+
+type DiagnosticBundle = {
+  assessment: typeof assessments.$inferSelect;
+  assessmentQuestions: QuestionRow[];
+  latestByQuestion: Map<string, AnswerRow>;
+  answeredCount: number;
+  requiredAnswers: number;
+  parentTopicTitle: string | null;
+};
 
 function normalizeScore(
   rawScore: number | null,
@@ -51,6 +58,97 @@ function extractStudentAnswer(answer?: AnswerRow): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   return trimmed.length ? trimmed : null;
+}
+
+async function ensureDiagnosticBundle(
+  userId: string,
+  conceptNode: NodeRow,
+  parentTopicTitle: string | null,
+): Promise<DiagnosticBundle> {
+  const existingAssessments = await db
+    .select()
+    .from(assessments)
+    .where(
+      and(
+        eq(assessments.userId, userId),
+        eq(assessments.targetNodeId, conceptNode.id),
+        eq(assessments.type, "diagnostic"),
+      ),
+    )
+    .orderBy(desc(assessments.createdAt));
+
+  let assessment: (typeof existingAssessments)[0];
+  let assessmentQuestions: QuestionRow[];
+
+  if (existingAssessments.length) {
+    assessment = existingAssessments[0];
+    assessmentQuestions = await db
+      .select()
+      .from(questions)
+      .where(eq(questions.assessmentId, assessment.id));
+  } else {
+    const assessmentId = uuid();
+    await db.insert(assessments).values({
+      id: assessmentId,
+      userId,
+      targetNodeId: conceptNode.id,
+      type: "diagnostic",
+      title: `Diagnostic for ${conceptNode.title}`,
+    });
+
+    const generatedQuestions = await generateDiagnosticQuestions(
+      conceptNode.title,
+      conceptNode.desc,
+      parentTopicTitle,
+    );
+
+    for (const q of generatedQuestions) {
+      await db.insert(questions).values({
+        id: uuid(),
+        assessmentId,
+        nodeId: conceptNode.id,
+        format: q.format,
+        prompt: q.prompt,
+        options: q.options ? JSON.stringify(q.options) : null,
+        correctAnswer: q.correctAnswer,
+        difficulty: q.difficulty,
+      });
+    }
+
+    const created = await db
+      .select()
+      .from(assessments)
+      .where(eq(assessments.id, assessmentId));
+    assessment = created[0];
+    assessmentQuestions = await db
+      .select()
+      .from(questions)
+      .where(eq(questions.assessmentId, assessmentId));
+  }
+
+  const assessmentAnswers = await db
+    .select()
+    .from(answers)
+    .where(
+      and(eq(answers.assessmentId, assessment.id), eq(answers.userId, userId)),
+    );
+  const latestByQuestion = latestAnswersByQuestion(assessmentAnswers);
+
+  const answeredCount = assessmentQuestions.filter((question) => {
+    const answer = latestByQuestion.get(question.id);
+    return !!extractStudentAnswer(answer);
+  }).length;
+
+  const requiredAnswers = Math.max(10, assessmentQuestions.length || 10);
+
+  return {
+    assessment,
+    assessmentQuestions,
+    latestByQuestion,
+    answeredCount,
+    requiredAnswers,
+    parentTopicTitle,
+  };
 }
 
 function latestAnswersByQuestion(
@@ -596,13 +694,18 @@ router.post("/topics/:topicNodeId/run", async (req, res, next) => {
     sse.registerAgent(); // Register the topic agent
 
     try {
-      // Phase 1: Run Topic Agent — generates concepts with SSE streaming
-      const topicResult = await runTopicAgent({ userId, topicNode, sse, small: !!small });
+      // Run Topic Agent — generates concepts with SSE streaming
+      const topicResult = await runTopicAgent({
+        userId,
+        topicNode,
+        sse,
+        small: !!small,
+      });
 
-      // Phase 2: Launch Subconcept Bootstrap Agents in parallel (capped at 3)
+      // Immediately bootstrap subconcepts for each concept (concurrent limit 3)
       const limit = pLimit(3);
       const bootstrapPromises = topicResult.concepts.map((savedConcept) => {
-        sse.registerAgent(); // Register each bootstrap agent
+        sse.registerAgent();
         return limit(async () => {
           try {
             await runSubconceptBootstrapAgent({
@@ -612,6 +715,7 @@ router.post("/topics/:topicNodeId/run", async (req, res, next) => {
               documentContext: savedConcept.documentContext,
               sse,
               small: !!small,
+              generateQuestions: true, // keep diagnostics for optional survey
             });
           } catch (err: any) {
             sse.send("agent_error", {
@@ -644,9 +748,55 @@ router.post("/topics/:topicNodeId/run", async (req, res, next) => {
   }
 });
 
+// GET /api/agents/concepts/:conceptNodeId/diagnostic (optional survey)
+router.get("/concepts/:conceptNodeId/diagnostic", async (req, res, next) => {
+  try {
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    const conceptNodeResult = await db
+      .select()
+      .from(nodes)
+      .where(eq(nodes.id, req.params.conceptNodeId));
+    if (!conceptNodeResult.length) {
+      return res.status(404).json({ error: "Concept node not found" });
+    }
+    const conceptNode = conceptNodeResult[0];
+    if (conceptNode.type !== "concept") {
+      return res.status(400).json({ error: "Node must be type=concept" });
+    }
+
+    let parentTopicTitle: string | null = null;
+    if (conceptNode.parentId) {
+      const parent = await db
+        .select()
+        .from(nodes)
+        .where(eq(nodes.id, conceptNode.parentId));
+      if (parent.length) parentTopicTitle = parent[0].title;
+    }
+
+    const bundle = await ensureDiagnosticBundle(
+      userId,
+      conceptNode,
+      parentTopicTitle,
+    );
+
+    return res.json({
+      agent: "concept",
+      status: "diagnostic_ready",
+      conceptNodeId: conceptNode.id,
+      assessment: bundle.assessment,
+      questions: bundle.assessmentQuestions,
+      answeredCount: bundle.answeredCount,
+      requiredAnswers: bundle.requiredAnswers,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/agents/concepts/:conceptNodeId/run
-// Phase 1 (no answers): returns diagnostic questions as JSON
-// Phase 2 (answers exist): SSE stream — runs refinement agent
+// Always streams refinement; diagnostic answers (if any) are included in context.
 router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
   try {
     const { userId } = req.body as { userId?: string };
@@ -674,100 +824,56 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
       if (parent.length) parentTopicTitle = parent[0].title;
     }
 
-    // Look for existing diagnostic assessment (created by bootstrap agent)
-    const existingAssessments = await db
+    const diagnostic = await ensureDiagnosticBundle(
+      userId,
+      conceptNode,
+      parentTopicTitle,
+    );
+
+    const existingSubconcepts = await db
       .select()
-      .from(assessments)
+      .from(nodes)
       .where(
-        and(
-          eq(assessments.userId, userId),
-          eq(assessments.targetNodeId, conceptNode.id),
-          eq(assessments.type, "diagnostic"),
-        ),
-      )
-      .orderBy(desc(assessments.createdAt));
-
-    let assessment: typeof existingAssessments[0];
-    let assessmentQuestions: QuestionRow[];
-
-    if (existingAssessments.length) {
-      assessment = existingAssessments[0];
-      assessmentQuestions = await db
-        .select()
-        .from(questions)
-        .where(eq(questions.assessmentId, assessment.id));
-    } else {
-      // Backfill: create diagnostic on demand (legacy data or failed bootstrap)
-      const assessmentId = uuid();
-      await db.insert(assessments).values({
-        id: assessmentId,
-        userId,
-        targetNodeId: conceptNode.id,
-        type: "diagnostic",
-        title: `Diagnostic for ${conceptNode.title}`,
-      });
-
-      const generatedQuestions = await generateDiagnosticQuestions(
-        conceptNode.title,
-        conceptNode.desc,
-        parentTopicTitle,
+        and(eq(nodes.parentId, conceptNode.id), eq(nodes.type, "subconcept")),
       );
 
-      for (const q of generatedQuestions) {
-        await db.insert(questions).values({
-          id: uuid(),
-          assessmentId,
-          nodeId: conceptNode.id,
-          format: q.format,
-          prompt: q.prompt,
-          options: q.options ? JSON.stringify(q.options) : null,
-          correctAnswer: q.correctAnswer,
-          difficulty: q.difficulty,
-        });
-      }
-
-      const created = await db
-        .select()
-        .from(assessments)
-        .where(eq(assessments.id, assessmentId));
-      assessment = created[0];
-      assessmentQuestions = await db
-        .select()
-        .from(questions)
-        .where(eq(questions.assessmentId, assessmentId));
-    }
-
-    const assessmentAnswers = await db
-      .select()
-      .from(answers)
-      .where(
-        and(
-          eq(answers.assessmentId, assessment.id),
-          eq(answers.userId, userId),
-        ),
-      );
-    const latestByQuestion = latestAnswersByQuestion(assessmentAnswers);
-
-    const answeredCount = assessmentQuestions.filter((question) => {
-      const answer = latestByQuestion.get(question.id);
-      return !!extractStudentAnswer(answer);
-    }).length;
-
-    // Phase 1: Return questions if student hasn't answered yet
-    if (answeredCount < 1) {
-      return res.json({
-        agent: "concept",
-        status: "awaiting_answers",
-        conceptNodeId: conceptNode.id,
-        assessment,
-        questions: assessmentQuestions,
-        answeredCount,
-        requiredAnswers: 1,
-      });
-    }
-
-    // Phase 2: Run the refinement agent with SSE streaming
     const sse = initSSE(res);
+
+    // Inform frontend of diagnostic status (optional)
+    sse.send("diagnostic_status", {
+      conceptNodeId: conceptNode.id,
+      assessment: diagnostic.assessment,
+      answeredCount: diagnostic.answeredCount,
+      requiredAnswers: diagnostic.requiredAnswers,
+    });
+
+    // Bootstrap subconcepts if missing (questions already exist)
+    if (!existingSubconcepts.length) {
+      sse.registerAgent();
+      try {
+        await runSubconceptBootstrapAgent({
+          userId,
+          conceptNode,
+          topicTitle: parentTopicTitle ?? "Topic",
+          documentContext: null,
+          sse,
+          small: false,
+          generateQuestions: false,
+        });
+        sse.send("agent_done", {
+          agent: `subconcept_bootstrap:${conceptNode.title}`,
+        });
+      } catch (err: any) {
+        sse.send("agent_error", {
+          agent: `subconcept_bootstrap:${conceptNode.title}`,
+          message: err.message ?? "Subconcept bootstrap agent failed",
+        });
+      } finally {
+        sse.resolveAgent();
+      }
+    }
+
+    // Run refinement using whatever answers exist (possibly zero)
     sse.registerAgent();
 
     try {
@@ -775,9 +881,9 @@ router.post("/concepts/:conceptNodeId/run", async (req, res, next) => {
         userId,
         conceptNode,
         parentTopicTitle,
-        assessmentId: assessment.id,
-        assessmentQuestions,
-        latestByQuestion,
+        assessmentId: diagnostic.assessment.id,
+        assessmentQuestions: diagnostic.assessmentQuestions,
+        latestByQuestion: diagnostic.latestByQuestion,
         sse,
       });
 
