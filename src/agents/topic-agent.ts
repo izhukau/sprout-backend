@@ -287,11 +287,11 @@ The concepts you create will be used by downstream agents to generate subconcept
   sse.send("agent_start", { agent: "topic" });
 
   const result = await runAgentLoop({
-    model: "claude-sonnet-4-6",
+    model: small ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6",
     systemPrompt,
     tools,
     initialMessage,
-    maxIterations: 15,
+    maxIterations: small ? 10 : 15,
     callbacks: {
       onThinking(text) {
         sse.send("agent_reasoning", { agent: "topic", text });

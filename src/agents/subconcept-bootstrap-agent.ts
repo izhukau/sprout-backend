@@ -255,11 +255,11 @@ Save all questions first, then all subconcepts, then all edges.`;
   sse.send("agent_start", { agent: `subconcept_bootstrap:${conceptNode.title}` });
 
   const result = await runAgentLoop({
-    model: "claude-sonnet-4-6",
+    model: small ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6",
     systemPrompt,
     tools,
     initialMessage,
-    maxIterations: 15,
+    maxIterations: small ? 10 : 15,
     callbacks: {
       onThinking(text) {
         sse.send("agent_reasoning", { agent: `subconcept_bootstrap:${conceptNode.title}`, text });
