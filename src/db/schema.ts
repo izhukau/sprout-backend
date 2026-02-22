@@ -138,6 +138,7 @@ export const nodeContents = sqliteTable(
     explanationMd: text("explanation_md").notNull(),
     visualizationKind: text("visualization_kind"), // 'mermaid' | 'svg' | 'json'
     visualizationPayload: text("visualization_payload"),
+    cards: text("cards"), // JSON: [{ id, index, explanation, question, questionType }]
     generatedByModel: text("generated_by_model"),
     generationPromptHash: text("generation_prompt_hash"),
     status: text("status", { enum: ["draft", "active", "archived"] })

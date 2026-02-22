@@ -516,6 +516,11 @@ RESPONSE FORMAT:
 - For regular tutoring turns (start + after [ANSWER]):
   - Explanation block first.
   - Then a line that starts exactly with: "Question Type:" and one value from: text | code | draw
+    Choose the type that best fits what the question asks the student to produce:
+    * text  — conceptual explanations, definitions, reasoning, short factual answers, or anything answered in plain language.
+    * code  — writing code, pseudocode, algorithms, SQL queries, shell commands, or any programming-related output. Use this whenever the subconcept is about programming, data structures, or computation and the question asks the student to write or complete code.
+    * draw  — sketching diagrams, graphs, circuits, geometric figures, flowcharts, data-structure visualizations, or any spatial/visual representation. Use this whenever a drawn picture, plot, or diagram would be the most natural way to answer.
+    Actively vary the question type based on the subject matter. Do NOT default to "text" when "code" or "draw" would be more appropriate.
   - Then a separate checkpoint question block that starts exactly with: "Question:"
   - Always include exactly one question in that block.
 - For [CLARIFICATION] turns:
