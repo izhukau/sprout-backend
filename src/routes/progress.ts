@@ -13,15 +13,13 @@ router.get("/", async (req, res, next) => {
     if (!userId)
       return res.status(400).json({ error: "userId query param required" });
 
-    let query = db
+    const conditions = [eq(userNodeProgress.userId, userId)];
+    if (nodeId) conditions.push(eq(userNodeProgress.nodeId, nodeId));
+
+    const result = await db
       .select()
       .from(userNodeProgress)
-      .where(eq(userNodeProgress.userId, userId))
-      .$dynamic();
-    if (nodeId)
-      query = query.where(eq(userNodeProgress.nodeId, nodeId));
-
-    const result = await query;
+      .where(and(...conditions));
     res.json(result);
   } catch (e) {
     next(e);

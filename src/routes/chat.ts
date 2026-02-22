@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db";
 import { chatSessions, chatMessages, hintEvents, nodes } from "../db/schema";
-import { eq, asc } from "drizzle-orm";
+import { and, eq, asc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { tutorRespond, type ChatMessage } from "../agents/tutor-chat";
 
@@ -340,9 +340,15 @@ function stripTutorQuestionForClarification(content: string): string {
 router.get("/sessions", async (req, res, next) => {
   try {
     const { userId, nodeId } = req.query as Record<string, string>;
-    let query = db.select().from(chatSessions).$dynamic();
-    if (userId) query = query.where(eq(chatSessions.userId, userId));
-    if (nodeId) query = query.where(eq(chatSessions.nodeId, nodeId));
+    const conditions = [];
+    if (userId) conditions.push(eq(chatSessions.userId, userId));
+    if (nodeId) conditions.push(eq(chatSessions.nodeId, nodeId));
+    const query = conditions.length
+      ? db
+          .select()
+          .from(chatSessions)
+          .where(and(...conditions))
+      : db.select().from(chatSessions);
     const result = await query;
     res.json(result);
   } catch (e) {
@@ -477,9 +483,15 @@ router.post("/hints", async (req, res, next) => {
 router.get("/hints", async (req, res, next) => {
   try {
     const { userId, nodeId } = req.query as Record<string, string>;
-    let query = db.select().from(hintEvents).$dynamic();
-    if (userId) query = query.where(eq(hintEvents.userId, userId));
-    if (nodeId) query = query.where(eq(hintEvents.nodeId, nodeId));
+    const conditions = [];
+    if (userId) conditions.push(eq(hintEvents.userId, userId));
+    if (nodeId) conditions.push(eq(hintEvents.nodeId, nodeId));
+    const query = conditions.length
+      ? db
+          .select()
+          .from(hintEvents)
+          .where(and(...conditions))
+      : db.select().from(hintEvents);
     const result = await query;
     res.json(result);
   } catch (e) {
@@ -494,16 +506,11 @@ router.get("/hints", async (req, res, next) => {
 // Send empty content to start the session.
 router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
   try {
-    const { userId, content, drawingImageDataUrl, preferredNextQuestionType } =
-      req.body;
+    const { userId, content, drawingImageDataUrl } = req.body;
     if (!userId) return res.status(400).json({ error: "userId is required" });
     const trimmedContent = typeof content === "string" ? content.trim() : "";
     const isClarificationTurn = trimmedContent.startsWith("[CLARIFICATION]");
     const isAnswerTurn = trimmedContent.startsWith("[ANSWER]");
-    const preferredQuestionType =
-      isAnswerTurn && typeof preferredNextQuestionType === "string"
-        ? normalizeQuestionType(preferredNextQuestionType)
-        : null;
     const drawAttachment =
       isAnswerTurn && typeof drawingImageDataUrl === "string"
         ? parseDrawingDataUrl(drawingImageDataUrl)
@@ -606,7 +613,12 @@ router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
       node.desc,
       parentConceptTitle,
       messages,
-      preferredQuestionType,
+      {
+        userId,
+        subconceptNodeId: node.id,
+        conceptNodeId: node.parentId ?? node.id,
+        sessionId: req.params.sessionId,
+      },
     );
 
     // Keep a checkpoint question in every unfinished tutor turn.
@@ -631,7 +643,6 @@ router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
           fallbackQuestion,
           fallbackQuestionType,
           responseIsComplete,
-          preferredQuestionType,
         );
 
     // 6. Save AI response to DB
@@ -656,6 +667,8 @@ router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
     res.json({
       message: responseContent,
       isComplete: responseIsComplete,
+      toolsUsed: response.toolsUsed,
+      reasoning: response.reasoning,
     });
   } catch (e) {
     next(e);

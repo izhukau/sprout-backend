@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
 import { errorHandler } from "./middleware/error-handler";
 import usersRouter from "./routes/users";
 import branchesRouter from "./routes/branches";
@@ -14,6 +15,7 @@ import documentsRouter from "./routes/documents";
 const app = express();
 const PORT = process.env.PORT || 8000;
 
+app.use(cors());
 app.use(express.json());
 
 // Routes

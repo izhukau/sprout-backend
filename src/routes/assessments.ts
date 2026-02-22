@@ -10,10 +10,12 @@ const router = Router();
 router.get("/", async (req, res, next) => {
   try {
     const { userId, targetNodeId } = req.query as Record<string, string>;
-    let query = db.select().from(assessments).$dynamic();
-    if (userId) query = query.where(eq(assessments.userId, userId));
-    if (targetNodeId)
-      query = query.where(eq(assessments.targetNodeId, targetNodeId));
+    const conditions = [];
+    if (userId) conditions.push(eq(assessments.userId, userId));
+    if (targetNodeId) conditions.push(eq(assessments.targetNodeId, targetNodeId));
+    const query = conditions.length
+      ? db.select().from(assessments).where(and(...conditions))
+      : db.select().from(assessments);
     const result = await query;
     res.json(result);
   } catch (e) {
@@ -173,13 +175,12 @@ router.post("/:assessmentId/answers", async (req, res, next) => {
 router.get("/:assessmentId/answers", async (req, res, next) => {
   try {
     const userId = req.query.userId as string;
-    let query = db
+    const conditions = [eq(answers.assessmentId, req.params.assessmentId)];
+    if (userId) conditions.push(eq(answers.userId, userId));
+    const result = await db
       .select()
       .from(answers)
-      .where(eq(answers.assessmentId, req.params.assessmentId))
-      .$dynamic();
-    if (userId) query = query.where(eq(answers.userId, userId));
-    const result = await query;
+      .where(and(...conditions));
     res.json(result);
   } catch (e) {
     next(e);
