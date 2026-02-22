@@ -1,8 +1,10 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { eq } from "drizzle-orm";
 import { errorHandler } from "./middleware/error-handler";
-import usersRouter from "./routes/users";
+import { db } from "./db";
+import { users } from "./db/schema";
 import branchesRouter from "./routes/branches";
 import nodesRouter from "./routes/nodes";
 import nodeContentsRouter from "./routes/node-contents";
@@ -12,6 +14,23 @@ import chatRouter from "./routes/chat";
 import agentsRouter from "./routes/agents";
 import documentsRouter from "./routes/documents";
 
+const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000000";
+
+async function ensureDefaultUser() {
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, DEFAULT_USER_ID));
+  if (!existing.length) {
+    await db.insert(users).values({
+      id: DEFAULT_USER_ID,
+      email: "default@sprout.local",
+      title: "Default Learner",
+    });
+    console.log("Default user seeded.");
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 8000;
 
@@ -19,7 +38,6 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-app.use("/api/users", usersRouter);
 app.use("/api/branches", branchesRouter);
 app.use("/api/nodes", nodesRouter);
 app.use("/api/nodes", nodeContentsRouter); // /api/nodes/:nodeId/contents & /generations
@@ -37,8 +55,10 @@ app.get("/api/health", (_req, res) => {
 // Error handler
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`Sprout backend running on http://localhost:${PORT}`);
+ensureDefaultUser().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Sprout backend running on http://localhost:${PORT}`);
+  });
 });
 
 export default app;

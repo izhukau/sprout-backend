@@ -37,6 +37,7 @@ type DiagnosticBundle = {
   answeredCount: number;
   requiredAnswers: number;
   parentTopicTitle: string | null;
+  isComplete: boolean;
 };
 
 function normalizeScore(
@@ -139,7 +140,10 @@ async function ensureDiagnosticBundle(
     return !!extractStudentAnswer(answer);
   }).length;
 
-  const requiredAnswers = Math.max(10, assessmentQuestions.length || 10);
+  const requiredAnswers = assessmentQuestions.length;
+  const isComplete =
+    !!assessment.completedAt ||
+    (assessmentQuestions.length > 0 && answeredCount >= assessmentQuestions.length);
 
   return {
     assessment,
@@ -148,6 +152,7 @@ async function ensureDiagnosticBundle(
     answeredCount,
     requiredAnswers,
     parentTopicTitle,
+    isComplete,
   };
 }
 
@@ -789,6 +794,7 @@ router.get("/concepts/:conceptNodeId/diagnostic", async (req, res, next) => {
       questions: bundle.assessmentQuestions,
       answeredCount: bundle.answeredCount,
       requiredAnswers: bundle.requiredAnswers,
+      isComplete: bundle.isComplete,
     });
   } catch (e) {
     next(e);

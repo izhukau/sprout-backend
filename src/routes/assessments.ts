@@ -165,6 +165,36 @@ router.post("/:assessmentId/answers", async (req, res, next) => {
       .select()
       .from(answers)
       .where(eq(answers.id, id));
+
+    // Auto-complete assessment when all questions have been answered
+    const assessmentRow = await db
+      .select()
+      .from(assessments)
+      .where(eq(assessments.id, req.params.assessmentId));
+    if (assessmentRow.length && !assessmentRow[0].completedAt) {
+      const allQuestions = await db
+        .select()
+        .from(questions)
+        .where(eq(questions.assessmentId, req.params.assessmentId));
+      const allAnswers = await db
+        .select()
+        .from(answers)
+        .where(
+          and(
+            eq(answers.assessmentId, req.params.assessmentId),
+            eq(answers.userId, userId),
+          ),
+        );
+      const answeredIds = new Set(allAnswers.map((a) => a.questionId));
+      const unanswered = allQuestions.filter((q) => !answeredIds.has(q.id));
+      if (unanswered.length === 0 && allQuestions.length > 0) {
+        await db
+          .update(assessments)
+          .set({ completedAt: new Date().toISOString() })
+          .where(eq(assessments.id, req.params.assessmentId));
+      }
+    }
+
     res.status(201).json(created[0]);
   } catch (e) {
     next(e);

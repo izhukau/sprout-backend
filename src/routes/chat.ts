@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db";
-import { chatSessions, chatMessages, hintEvents, nodes } from "../db/schema";
+import { chatSessions, chatMessages, hintEvents, nodes, nodeContents } from "../db/schema";
 import { and, eq, asc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { tutorRespond, type ChatMessage } from "../agents/tutor-chat";
@@ -656,7 +656,77 @@ router.post("/sessions/:sessionId/tutor", async (req, res, next) => {
       content: responseContent,
     });
 
-    // 7. If complete, end the session
+    // 7. Persist structured chunk as a card in nodeContents
+    if (!isClarificationTurn && !responseIsComplete) {
+      const chunkQuestion = extractQuestionFromTutorMessage(responseContent);
+      const chunkQuestionType = extractQuestionTypeFromTutorMessage(responseContent);
+      const chunkExplanation = stripTutorQuestionForClarification(responseContent);
+
+      if (chunkExplanation || chunkQuestion) {
+        // Get or create active nodeContents for this subconcept
+        const existingContent = await db
+          .select()
+          .from(nodeContents)
+          .where(
+            and(
+              eq(nodeContents.nodeId, session.nodeId!),
+              eq(nodeContents.status, "active"),
+            ),
+          );
+
+        let contentRow = existingContent[0];
+        if (!contentRow) {
+          const contentId = uuid();
+          await db.insert(nodeContents).values({
+            id: contentId,
+            nodeId: session.nodeId!,
+            explanationMd: chunkExplanation || "",
+            cards: "[]",
+            status: "active",
+          });
+          const created = await db
+            .select()
+            .from(nodeContents)
+            .where(eq(nodeContents.id, contentId));
+          contentRow = created[0];
+        }
+
+        const existingCards: Array<{
+          id: string;
+          index: number;
+          explanation: string;
+          question: string | null;
+          questionType: string | null;
+        }> = contentRow.cards ? JSON.parse(contentRow.cards) : [];
+
+        const newCard = {
+          id: uuid(),
+          index: existingCards.length,
+          explanation: chunkExplanation || "",
+          question: chunkQuestion,
+          questionType: chunkQuestionType,
+        };
+
+        if (response.chunkTransition === "same" && existingCards.length > 0) {
+          // Re-ask scenario: update the last card
+          existingCards[existingCards.length - 1] = {
+            ...existingCards[existingCards.length - 1],
+            explanation: chunkExplanation || existingCards[existingCards.length - 1].explanation,
+            question: chunkQuestion ?? existingCards[existingCards.length - 1].question,
+            questionType: chunkQuestionType ?? existingCards[existingCards.length - 1].questionType,
+          };
+        } else {
+          existingCards.push(newCard);
+        }
+
+        await db
+          .update(nodeContents)
+          .set({ cards: JSON.stringify(existingCards) })
+          .where(eq(nodeContents.id, contentRow.id));
+      }
+    }
+
+    // 8. If complete, end the session
     if (responseIsComplete) {
       await db
         .update(chatSessions)
